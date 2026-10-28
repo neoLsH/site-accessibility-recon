@@ -2,9 +2,9 @@
 """report.py — 从站点档案与证据表生成 Markdown 报告。
 
 用法:
-    python3 scripts/report.py --profile sites/example.com/profile.yaml
-    python3 scripts/report.py --profile sites/example.com/profile.yaml \
-        --evidence sites/example.com/evidence.csv --out sites/example.com/report.md
+    python3 scripts/report.py --profile recon/forum/profile.yaml
+    python3 scripts/report.py --profile recon/forum/profile.yaml \
+        --evidence recon/forum/evidence.csv --out recon/forum/report.md
 
 说明:
     - 只渲染档案里已有的结论；缺字段写「未记录」，不编造数字。
@@ -375,8 +375,8 @@ def build_report(profile, rows):
 
 def main():
     ap = argparse.ArgumentParser(description='从站点档案与证据表生成 Markdown 报告')
-    ap.add_argument('--profile', required=True, help='sites/<host>/profile.yaml')
-    ap.add_argument('--evidence', help='sites/<host>/evidence.csv（可选）')
+    ap.add_argument('--profile', required=True, help='recon/<代号>/profile.yaml')
+    ap.add_argument('--evidence', help='recon/<代号>/evidence.csv（可选）')
     ap.add_argument('--out', help='输出文件；缺省打印到 stdout')
     args = ap.parse_args()
 

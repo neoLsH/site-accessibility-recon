@@ -4,15 +4,27 @@
 
 ## 目录约定
 
-`sites/` 放在**你的项目根**，与 skill 目录分开；skill 目录只带模板，不存任何目标站点的档案。
+工作区放**你的项目根**的 `recon/`，与 skill 目录分开；skill 目录只带骨架模板，不存任何目标站点的档案（`skills update` 会整份重写 skill 目录）。
+
+首次使用先把骨架落地，它自带 `.gitignore`，之后所有记录默认不入库：
+
+```bash
+cp -R <skill 目录>/assets/workspace/. ./recon/
+```
 
 ```
-sites/
-└── example.com/
+recon/
+├── .gitignore           # 除骨架外全忽略
+├── README.md            # 工作区约定
+├── raw/                 # 原始响应体，文件名带页面前缀
+└── <代号>/              # 一个目标一个目录，用代号不用域名
     ├── profile.yaml     # 结论与策略
     ├── evidence.csv     # 证据矩阵原始行
+    ├── report.md        # 由 report.py 生成
     └── notes.md         # 推理链、误判、未解问题
 ```
+
+用代号的理由：报告要外发或晋升为 `references/cases/` 时不用改名，也不会顺手漏出站点标识。
 
 ## profile.yaml
 
@@ -120,9 +132,9 @@ non_goals:
 档案是源，报告是投影。不要手写报告，否则两份必然对不上：
 
 ```bash
-python3 scripts/report.py --profile sites/example.com/profile.yaml \
-    --evidence sites/example.com/evidence.csv \
-    --out sites/example.com/report.md
+python3 scripts/report.py --profile recon/forum/profile.yaml \
+    --evidence recon/forum/evidence.csv \
+    --out recon/forum/report.md
 ```
 
 - 只渲染档案里已有的结论，缺字段写「未记录」，不会编造数字。

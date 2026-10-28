@@ -25,7 +25,7 @@ A diagnosable, layered playbook for web access failures — built for agents, po
 |---|---|
 | 闸门图 | 这次请求卡在哪几扇门，哪些已证通过，哪些还是假设 |
 | 证据矩阵 | 客户端栈 × 身份 × 路由 的结果表，含对照组 |
-| 站点档案 | `sites/<host>/profile.yaml`，机器可读，可直接驱动执行侧 |
+| 站点档案 | `recon/<代号>/profile.yaml`，机器可读，可直接驱动执行侧 |
 | 双指标 | 可访问性成功率 / 内容完整率，分开统计（时间受限可后补，但须标注样本范围） |
 | 报告 | 复现步骤、根因、最低成本方案、回归方式（同上，可后补；用 `scripts/report.py` 从档案生成） |
 
@@ -50,36 +50,39 @@ A diagnosable, layered playbook for web access failures — built for agents, po
 
 ```bash
 # 0. 环境自检：哪些工具在、缺什么、版本陷阱（LibreSSL 的 JA3 与 OpenSSL 不同）
-./scripts/preflight.sh
+./scripts/recon.py doctor
 
 # 1. 装上（换成你 Agent 实际读取的 skills 目录）
 ./adapters/install.sh .claude/skills
 
+# 1.5 落地工作区骨架：所有记录写到 recon/，自带 .gitignore，内容默认不入库
+cp -R ./assets/workspace/. ./recon/
+
 # 2. 可行性快筛：一批 URL 各发 1 请求，先分掉合规禁止 / 不可达 / 需授权 / 疑似拦截
-./scripts/quick-check.sh --from urls.txt --selector '#content'
+./scripts/recon.py quick --from urls.txt --selector '#content'
 
 # 3. 选 5–10 个 URL，按路由分组；用真实浏览器记录内容区长度作为基线
 #    注意：量正文容器，不要量整页
 
 # 4. 跑客户端栈矩阵（同 UA 换栈看是否翻转；同时量内容区，区分空壳与真正文）
-./scripts/client-matrix.sh 'https://example.com/article/1' --selector '#content' --passes 3
+./scripts/recon.py matrix 'https://example.com/article/1' --selector '#content' --passes 3
 
 # 5. 分诊：链路失败？反爬拦截？内容不存在？
 #    见 references/triage-and-gates.md；判进反爬拦截后按 references/waf-classes.md 归类
 
 # 5.1 指纹细化：两个固定读数页——浏览器侧 ippure.com/fingerprint.html，网络侧 tls 回显
-./scripts/fp-echo.py --out baseline.json
-./scripts/fp-echo.py --via cffi --impersonate chrome --out chrome.json
-./scripts/fp-echo.py --diff baseline.json chrome.json
+./scripts/recon.py fp collect --out baseline.json
+./scripts/recon.py fp collect --via cffi --impersonate chrome --out chrome.json
+./scripts/recon.py fp diff baseline.json chrome.json
 
 # 5.2 确认路径可行且拿到内容（由低到高换栈，失败给出 WAF 归类）
-./scripts/fetch-page.py 'https://example.com/article/1' --selector '#content'
+./scripts/recon.py fetch 'https://example.com/article/1' --selector '#content'
 
-# 6. 自底向上隔离，画闸门图，落 sites/<host>/profile.yaml（模板见 assets/）
+# 6. 自底向上隔离，画闸门图，落 recon/<代号>/profile.yaml（模板见 assets/）
 
 # 7. 从档案生成报告，再跑自检，零失败再提交
-./scripts/report.py --profile sites/example.com/profile.yaml
-python3 scripts/self-check.py
+./scripts/recon.py report recon/forum/profile.yaml --out recon/forum/report.md
+./scripts/recon.py check
 ```
 
 浏览器内指纹快照（含 CDP 泄漏探针）：
@@ -89,6 +92,44 @@ python3 scripts/self-check.py
 await fingerprintProbe()
 // 或 CDP Runtime.evaluate: "(async () => JSON.stringify(await fingerprintProbe()))()"
 ```
+
+## CLI 入口
+
+六个脚本收敛成一个入口，参数原样透传给底层脚本：
+
+```
+recon <命令> [参数...] [--json]
+```
+
+| 命令 | 背后 | 说明 |
+|---|---|---|
+| `doctor` | `preflight.sh` | 环境自检：缺什么、缺了会降级成什么 |
+| `quick` | `quick-check.sh` | 可行性快筛：每 URL 1 请求 + robots |
+| `matrix` | `client-matrix.sh` | 客户端栈矩阵 + 内容区长度 |
+| `fetch` | `fetch-page.py` | 客户端阶梯取内容 + WAF 归类 |
+| `fp` | `fp-echo.py` | `fp collect` 采集快照 / `fp diff A B` 比对 |
+| `report` | `report.py` | `recon report <档案>` 生成报告 |
+| `check` | `self-check.py` | 仓库自检 |
+
+`--json` 把输出收敛成**一个**对象，退出码不变：
+
+```json
+{"command": "quick", "ok": false,
+ "rows": [{"verdict": "待定", "http": "200", "bytes": "577", "content": "156",
+           "final_url": "https://example.com/", "url": "https://example.com",
+           "reason": "内容区 156 低于下限 200，且无 CSR 迹象"}]}
+```
+
+`fp` → `{"command":"fp","diff":{"total":3,"differ":2,"fields":[...]}}`，`fetch` → `records`，`check` → `failures`，`report` → `out` / `report`。`ok` 直接取自退出码，所以「有 URL 不可行」「两份指纹有差异」都是 `false`。
+
+想当全局命令用：
+
+```bash
+ln -s "$PWD/scripts/recon.py" ~/.local/bin/recon
+# 或 alias recon="$PWD/scripts/recon.py"
+```
+
+还没做 pip / uvx / npx 打包——先把命令和 JSON 契约用稳，打包器随时能加一层。
 
 ## 安装与 Agent 适配
 
@@ -120,7 +161,12 @@ references/
 assets/
   site-profile.template.yaml  # 站点档案模板
   report-template.md          # 报告模板
+  workspace/                  # 工作区骨架：复制成 <项目根>/recon/（自带 .gitignore）
+    .gitignore                # 除骨架外全部忽略
+    README.md                 # 工作区约定：命名、规矩、重来一次
+    raw/.gitkeep              # 原始响应体目录
 scripts/
+  recon.py                    # 统一入口：doctor / quick / matrix / fetch / fp / report / check
   preflight.sh                # 环境自检（必需 / 可选工具与版本）
   quick-check.sh              # 可行性快筛（robots 检查 + 1 请求 + 内容区）
   client-matrix.sh            # 客户端栈矩阵
@@ -142,7 +188,7 @@ LICENSE                       # MIT
 python3 scripts/self-check.py
 ```
 
-覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名）、全部脚本语法（`.sh` / `.js` / `.py`）。退出码非 0 即不可发布。
+覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识）、全部脚本语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行。退出码非 0 即不可发布。
 
 ## 案例
 
@@ -163,6 +209,7 @@ python3 scripts/self-check.py
 5. **档案优于报告。** 报告给人看，档案给系统用。
 6. **承认不可解。** 明确写出“这条路由当前无解”，比无限试错更有价值。
 7. **归类不绕过。** WAF 按机制归类是为了选对合规路径，不是提供绕过手法。
+8. **记录留在本地。** 工作区放项目根，骨架进仓库、内容不进；要外发就另存脱敏版。
 
 ## 边界
 
@@ -178,11 +225,12 @@ python3 scripts/self-check.py
 - 新增案例请按 `references/cases/` 的既有结构：现象 → 误判 → 决定性实验 → 结论 → 可迁移规律 → 置信度。
 - 新增结论请标注置信度；没有证据的写 `assumed`。
 - 新增检测向量请落到 `references/vectors.md`，并绑定层与对策级别。
+- **不出现任何内网平台名、内网域名、内部产品代号。** 要拦的词写进 `~/.config/site-recon/denylist.local`（每行一个正则，可用 `RECON_DENY` 指向别处），**不要放进仓库目录**——ignore 挡不住 `git add -f`、打包和整目录拷贝。自检会加载它一起扫；CI 没有这份词表，自动跳过该项。
 - 脱敏是硬要求，`python3 scripts/self-check.py` 必须通过。
 
 ## 状态
 
-v1.2.0 — 指纹细化（两个默认读数页 + `fp-echo.py` 快照 diff）、WAF 六类归因（`waf-classes.md`）与客户端阶梯取内容（`fetch-page.py`）。v1.1.0 引入默认工具链（`toolbox.md` + `preflight.sh`）、指纹分析手法、可行性快筛（`quick-check.sh`）与报告生成（`report.py`）。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
+v1.4.0 — 收敛出 CLI 入口 `scripts/recon.py`（`doctor|quick|matrix|fetch|fp|report|check`），参数透传、`--json` 输出单个对象、退出码不变；`fp diff --json` 与 `recon --version` 一并补上，自检新增「入口可运行」。v1.3.0 落地 `recon/` 工作区：`assets/workspace/` 提供骨架（`.gitignore` + 约定说明 + `raw/`），复制到项目根后记录默认不入库、只有壳被跟踪；全仓路径从 `sites/<host>` 统一为 `recon/<代号>`。v1.2.0 引入指纹细化（两个默认读数页 + `fp-echo.py` 快照 diff）、WAF 六类归因（`waf-classes.md`）与客户端阶梯取内容（`fetch-page.py`）。v1.1.0 引入默认工具链（`toolbox.md` + `preflight.sh`）、指纹分析手法、可行性快筛（`quick-check.sh`）与报告生成（`report.py`）。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
 
 ## License
 

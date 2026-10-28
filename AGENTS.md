@@ -17,6 +17,7 @@
 5. **非确定性要报区间。** 同一 URL 多 pass 会翻转。禁止用小样本点估计报良率。
 6. **区分基础设施噪声。** 502/超时/连接重置不算“被反爬”，单独计数。
 7. **探测要节流。** 连续打同一出口会触发频率降权，把观测结果污染成假阳性。
+8. **记录写在工作区。** 全部产出写 `<项目根>/recon/<代号>/`，骨架见 [assets/workspace/](assets/workspace/)（自带 `.gitignore`，内容默认不入库）。不写进 skill 目录——`skills update` 会整份重写。
 
 ## 工作流
 
@@ -47,14 +48,17 @@
 ## 脚本
 
 ```bash
-scripts/preflight.sh                                             # 环境自检
-scripts/quick-check.sh --from urls.txt --selector '#content'     # 可行性快筛（含 robots 检查）
-scripts/client-matrix.sh <url> --selector '#content' --passes 3   # 客户端栈矩阵 + 内容区长度
-scripts/fingerprint-probe.js                                     # 页面内指纹快照 + CDP 泄漏探针
-scripts/fp-echo.py --diff a.json b.json                          # 网络指纹快照 + 逐字段 diff
-scripts/fetch-page.py <url> --selector '#content'                # 客户端阶梯取内容 + WAF 归类
-scripts/report.py --profile sites/<host>/profile.yaml            # 从档案生成报告
+scripts/recon.py <命令> <参数>          # 统一入口，参数透传；加 --json 输出单个 JSON 对象
+scripts/recon.py doctor                                         # 环境自检
+scripts/recon.py quick --from urls.txt --selector '#content'    # 可行性快筛（含 robots 检查）
+scripts/recon.py matrix <url> --selector '#content' --passes 3   # 客户端栈矩阵 + 内容区长度
+scripts/fingerprint-probe.js                                    # 页面内指纹快照 + CDP 泄漏探针
+scripts/recon.py fp diff a.json b.json                          # 网络指纹快照 + 逐字段 diff
+scripts/recon.py fetch <url> --selector '#content'               # 客户端阶梯取内容 + WAF 归类
+scripts/recon.py report recon/<代号>/profile.yaml                # 从档案生成报告
 ```
+
+退出码与底层脚本一致；`--json` 不改变退出码，只把输出收敛成 `{"command": ..., "ok": ...}` 加该命令的字段。
 
 ## 边界
 
@@ -67,5 +71,5 @@ scripts/report.py --profile sites/<host>/profile.yaml            # 从档案生�
 - `SKILL.md` 是唯一入口，保持精简（≤150 行），细节下沉到 `references/`。
 - 每个 `references/*.md` 只回答一类问题，避免与 `SKILL.md` 重复。
 - 改动后跑 `python3 scripts/self-check.py`，必须零失败。
-- 案例必须脱敏：不含内网域名、IP、工单号、站点密钥或指纹常量。
+- 案例必须脱敏：不含内网平台名、内网域名、IP、工单号、站点密钥或指纹常量。要拦的词写进 `~/.config/site-recon/denylist.local`（仓库外），不要放进仓库目录。
 - 新增结论时标注置信度：observed / mechanism / efficacy。

@@ -40,7 +40,7 @@ native HTTP（curl） → 浏览器级协议栈（curl_cffi） → 真实浏览�
 scripts/fetch-page.py 'https://example.com/article/1' --selector '#content'
 
 # 批量 + 落盘 HTML + JSON 证据
-scripts/fetch-page.py --from urls.txt --selector '#content' --out-dir ./raw --json
+scripts/fetch-page.py --from urls.txt --selector '#content' --out-dir recon/raw --json
 ```
 
 ## 工具（按用途，不按“能不能过”）

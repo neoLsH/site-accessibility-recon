@@ -1,6 +1,6 @@
 .DS_Store
-raw/
-sites/
+/recon/
+denylist.local
 *.log
 __pycache__/
 node_modules/

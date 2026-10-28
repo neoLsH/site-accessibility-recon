@@ -11,7 +11,7 @@
 
 用法:
     scripts/fetch-page.py 'https://example.com/a' --selector '#content'
-    scripts/fetch-page.py --from urls.txt --selector '#content' --out-dir ./raw --json
+    scripts/fetch-page.py --from urls.txt --selector '#content' --out-dir recon/raw --json
 
 边界:
     - 默认执行 robots.txt 检查；--i-have-permission 仅用于已获站点方明确许可的场景。

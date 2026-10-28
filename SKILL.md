@@ -2,7 +2,7 @@
 name: site-accessibility-recon
 description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，遇 WAF 先按机制归类再选合规路径，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标验证对策。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，可行性快筛，bot defense triage，scrape reliability。
 metadata:
-  version: 1.2.0
+  version: 1.4.0
   scope: diagnostics
 ---
 
@@ -48,9 +48,7 @@ metadata:
 
 对策等级另用 S0–S7 编号（见 [countermeasure-ladder.md](references/countermeasure-ladder.md)），与步骤编号区分开。
 
-⓪ 是**便宜的前置**，不是结论：它只回答“这条路值不值得走”。跳过它去深挖，常常是在一条合规禁止或路由不存在的路上烧预算。
-
-自底向上的原因：低层失败会让高层所有结论失效（链路不通时分析指纹毫无意义），而低层方案通常也更便宜。
+⓪ 是**便宜的前置**，不是结论：它只回答“这条路值不值得走”，跳过它容易在合规禁止或路由不存在的路上烧预算。自底向上：低层失败会让高层结论全部失效（链路不通时谈指纹毫无意义），且低层方案通常更便宜。
 
 ## 分层速查（L0 口径 + L1–L7）
 
@@ -74,11 +72,11 @@ metadata:
 |---|---|---|
 | P0 | 闸门图 | 卡在哪几扇门，哪些已证通过，哪些还是假设 |
 | P0 | 证据矩阵 | 客户端栈 × 身份 × 路由 的结果表，含对照组 |
-| P0 | 站点档案 | `<项目根>/sites/<host>/profile.yaml`，机器可读，可直接驱动执行侧；模板见 [assets/site-profile.template.yaml](assets/site-profile.template.yaml)。`metrics` 未测就写 `null`，不要写 0 |
+| P0 | 站点档案 | `<项目根>/recon/<代号>/profile.yaml`，机器可读，可直接驱动执行侧；模板见 [assets/site-profile.template.yaml](assets/site-profile.template.yaml)。`metrics` 未测就写 `null`，不要写 0 |
 | P1 | 双指标 | 可访问性成功率与内容完整率分开报，含虚高审计 |
 | P1 | 报告 | 复现步骤、根因、最低成本方案、回归方式；不要手写，用 `scripts/report.py` 从档案生成，模板见 [assets/report-template.md](assets/report-template.md) |
 
-P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指标会被误读成全量结论。
+P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指标会被误读成全量结论。**工作区**：记录写 `<项目根>/recon/<代号>/`，骨架与忽略规则见 [assets/workspace/README.md](assets/workspace/README.md)；不写进 skill 目录——`skills update` 会整份重写。
 
 ## 按需加载
 
@@ -99,34 +97,34 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 ## 常用脚本
 
 ```bash
-# 0) 环境自检：缺什么、装什么
-scripts/preflight.sh
+# 统一入口 recon <命令> <参数>：参数透传给对应脚本，加 --json 输出单个 JSON 对象（含 command 字段）
+scripts/recon.py doctor
 
 # 0) 可行性快筛：一批 URL 各发 1 请求，先分出可行 / 需授权 / 疑似拦截 / 合规禁止
-scripts/quick-check.sh https://example.com/a https://example.com/b --selector "#content"
-scripts/quick-check.sh --from urls.txt --min-content 500
+scripts/recon.py quick https://example.com/a https://example.com/b --selector "#content"
+scripts/recon.py quick --from urls.txt --min-content 500 --json
 
 # 客户端栈矩阵：同一 URL 跑多种客户端，输出状态码/大小/内容区字符数/耗时/最终 URL
-scripts/client-matrix.sh https://example.com/page --selector "#content" --passes 3 --save-html ./raw
+scripts/recon.py matrix https://example.com/page --selector "#content" --passes 3 --save-html recon/raw
 
 # 已知目标有短窗限速：只打两个客户端
-scripts/client-matrix.sh https://example.com/page --clients curl,node
+scripts/recon.py matrix https://example.com/page --clients curl,node
 
 # 离线复核留存的原始 HTML（区分「容器为空」与「容器不存在」）
-scripts/client-matrix.sh --html ./raw/p1-curl-chrome.html --selector "#content"
+scripts/recon.py matrix --html recon/raw/p1-curl.html --selector "#content"
 
 # 浏览器内指纹快照（含 CDP 泄漏探针），在页面上下文执行
 scripts/fingerprint-probe.js
 
 # 网络栈指纹：采集快照并逐字段 diff（配合浏览器侧与网络侧两个读数页）
-scripts/fp-echo.py --via cffi --impersonate chrome --out chrome.json
-scripts/fp-echo.py --diff baseline.json chrome.json
+scripts/recon.py fp collect --via cffi --impersonate chrome --out chrome.json
+scripts/recon.py fp diff baseline.json chrome.json
 
 # 按客户端阶梯取内容，失败时给出 WAF 机制归类
-scripts/fetch-page.py 'https://example.com/a' --selector "#content"
+scripts/recon.py fetch 'https://example.com/a' --selector "#content"
 
 # 从档案 + 证据表生成报告（缺的字段写「未记录」，不编数字）
-scripts/report.py --profile sites/example.com/profile.yaml --out sites/example.com/report.md
+scripts/recon.py report recon/forum/profile.yaml --out recon/forum/report.md
 ```
 
 ## 红线

@@ -1,0 +1,7 @@
+# 探索记录默认不入库：内容只留本地，骨架才提交。
+# 复制到项目根后生效；中途想入库的单个文件用 git add -f 显式放行。
+*
+!.gitignore
+!README.md
+!raw/
+!raw/.gitkeep

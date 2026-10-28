@@ -4,11 +4,14 @@
 检查项：
   1. 必备文件与目录
   2. SKILL.md frontmatter（分隔符、name 规范、description 单行且 <=1024）
-  3. SKILL.md 行数 <= 500
+  3. SKILL.md 行数 <= 150
   4. 未决占位符（TODO / TBD / FIXME）
   5. Markdown 相对链接可解析
-  6. 脱敏红线（站点名 / 厂商名 / 内部产品名 / 非标准状态码 / Cookie 名）
+  6. 脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名，外加本地词表里的内网标识）
   7. 脚本语法（scripts/ 下全部 .sh / .js / .py）
+  8. 工作区骨架（recon/）：内容默认被忽略、骨架可入库
+  9. 内网词表：默认从仓库外读取（$RECON_DENY / ~/.config/site-recon/）；若出现在仓库内必须被忽略
+ 10. recon 入口可运行（--version 自检）
 
 退出码：0 通过，1 有问题。
 """
@@ -38,17 +41,23 @@ REQUIRED = [
     "references/waf-classes.md",
     "assets/site-profile.template.yaml",
     "assets/report-template.md",
+    "assets/workspace/.gitignore",
+    "assets/workspace/README.md",
+    "assets/workspace/raw/.gitkeep",
     "scripts/preflight.sh",
     "scripts/quick-check.sh",
     "scripts/client-matrix.sh",
     "scripts/fingerprint-probe.js",
     "scripts/fp-echo.py",
     "scripts/fetch-page.py",
+    "scripts/recon.py",
     "scripts/report.py",
     "scripts/self-check.py",
 ]
 
-# 脱敏红线：命中即失败
+# 脱敏红线：命中即失败。这里只放公开可提的站点 / 厂商。
+# 内网平台名、内网域名、内部产品代号一律不进本文件——否则规则本身就把内部标识写进了公开仓库；
+# 它们放在本地词表 LOCAL_DENY 里（已被 .gitignore 忽略）。
 FORBIDDEN = [
     (r"ctrip|csdn|zhihu|tripadvisor|cloudflare|datadome|"
      r"bilibili|xiaohongshu|kuaishou", "具体站点/厂商名"),
@@ -56,6 +65,10 @@ FORBIDDEN = [
     (r"\b(412|432|521)\b", "会指认厂商的非标准状态码"),
     (r"(?i)\bcookie\s*[:=]\s*[a-z_]{3,}", "具体 Cookie 名"),
 ]
+
+# 内网词表默认放仓库外：仓库里出现它本身就是风险（add -f、打包、整目录拷贝都会带走）。
+LOCAL_DENY = "denylist.local"
+DENY_HOME = os.path.expanduser("~/.config/site-recon/denylist.local")
 
 failures = []
 oks = []
@@ -75,8 +88,12 @@ def read(path):
 
 
 def markdown_files():
+    # recon/ 是运行时工作区，内容不入库、可能带真实站点标识，不参与校验；
+    # .git 与依赖目录同理。
+    skip = {"recon", ".git", "node_modules", "__pycache__"}
     out = []
-    for base, _, files in os.walk(ROOT):
+    for base, dirs, files in os.walk(ROOT):
+        dirs[:] = [d for d in dirs if d not in skip]
         for f in files:
             if f.endswith(".md"):
                 out.append(os.path.relpath(os.path.join(base, f), ROOT))
@@ -97,11 +114,42 @@ def check_structure():
             ok(f"存在 {p}")
         else:
             fail(f"缺失 {p}")
-    for d in ("scripts", "references", "references/cases", "assets"):
+    for d in ("scripts", "references", "references/cases", "assets", "assets/workspace"):
         if os.path.isdir(os.path.join(ROOT, d)):
             ok(f"目录 {d}/")
         else:
             fail(f"缺失目录 {d}/")
+
+
+def check_workspace_ignore():
+    """工作区骨架：壳必须能入库，内容必须默认被忽略。"""
+    shell = ["assets/workspace/.gitignore", "assets/workspace/README.md", "assets/workspace/raw/.gitkeep"]
+    content = ["assets/workspace/raw/p1-curl.html", "assets/workspace/forum/profile.yaml"]
+    missing = [p for p in shell if not os.path.exists(os.path.join(ROOT, p))]
+    if missing:
+        fail(f"工作区骨架不全: {', '.join(missing)}")
+        return
+
+    if not (shutil.which("git") and os.path.isdir(os.path.join(ROOT, ".git"))):
+        rules = read("assets/workspace/.gitignore")
+        need = ["*", "!.gitignore", "!README.md", "!raw/", "!raw/.gitkeep"]
+        lost = [r for r in need if r not in rules.split("\n")]
+        if lost:
+            fail(f"工作区 .gitignore 缺少放行规则: {', '.join(lost)}")
+        else:
+            ok("工作区 .gitignore 含全部放行规则（无 git，跳过实际判定）")
+        return
+
+    def ignored(path):
+        r = subprocess.run(["git", "-C", ROOT, "check-ignore", "--no-index", "-q", path],
+                           capture_output=True)
+        return r.returncode == 0
+
+    bad = [p for p in content if not ignored(p)] + [p for p in shell if ignored(p)]
+    if bad:
+        fail(f"工作区忽略规则不对（应忽略内容、保留骨架）: {', '.join(bad)}")
+    else:
+        ok("工作区：内容被忽略、骨架可入库")
 
 
 def check_frontmatter():
@@ -144,10 +192,10 @@ def check_frontmatter():
 
 def check_limits():
     lines = read("SKILL.md").count("\n") + 1
-    if lines <= 500:
-        ok(f"SKILL.md {lines} 行 (<=500)")
+    if lines <= 150:
+        ok(f"SKILL.md {lines} 行 (<=150)")
     else:
-        fail(f"SKILL.md {lines} 行 (>500)")
+        fail(f"SKILL.md {lines} 行 (>150)，细节应下沉到 references/")
 
     hits_total = 0
     for p in markdown_files():
@@ -207,17 +255,70 @@ def check_links():
         ok("Markdown 相对链接全部可解析")
 
 
+def deny_sources():
+    """词表来源：$RECON_DENY > ~/.config/site-recon/ > 仓库内（最后手段，必须被忽略）。"""
+    out = []
+    env = os.environ.get("RECON_DENY")
+    if env:
+        out.append(env)
+    if os.path.exists(DENY_HOME):
+        out.append(DENY_HOME)
+    local = os.path.join(ROOT, LOCAL_DENY)
+    if os.path.exists(local):
+        out.append(local)
+    return out
+
+
+def local_deny():
+    """本地禁用词表：每行一个正则（大小写不敏感），# 开头为注释。"""
+    rules = []
+    for path in deny_sources():
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        rules.append((f"(?i){line}", f"内网标识（{os.path.basename(path)}）"))
+        except OSError as e:
+            fail(f"词表读取失败 {path}: {e}")
+    return rules or None
+
+
+def check_local_deny():
+    if not deny_sources():
+        ok(f"未提供内网词表（$RECON_DENY 或 {DENY_HOME}），跳过该项（CI 同样跳过）")
+        return
+    ok(f"内网词表已加载 {len(local_deny() or [])} 条")
+
+    local = os.path.join(ROOT, LOCAL_DENY)
+    if not os.path.exists(local):
+        return
+    if shutil.which("git") and os.path.isdir(os.path.join(ROOT, ".git")):
+        r = subprocess.run(["git", "-C", ROOT, "check-ignore", "--no-index", "-q", LOCAL_DENY],
+                           capture_output=True)
+        if r.returncode != 0:
+            fail(f"仓库里有 {LOCAL_DENY} 且未被忽略，会随提交出去；请移到 {DENY_HOME}")
+            return
+    ok(f"仓库内的 {LOCAL_DENY} 已被忽略（仍建议移到 {DENY_HOME}，免得打包/拷贝带走）")
+
+
 def check_forbidden():
     bad = 0
     # 本文件的 FORBIDDEN 列表必然含这些词，跳过自身
     targets = [p for p in markdown_files() + script_files() + ["assets/site-profile.template.yaml"]
                if p != "scripts/self-check.py"]
+    patterns = FORBIDDEN + (local_deny() or [])
     for p in targets:
         if not os.path.exists(os.path.join(ROOT, p)):
             continue
         body = read(p)
-        for pattern, label in FORBIDDEN:
-            for m in re.finditer(pattern, body):
+        for pattern, label in patterns:
+            try:
+                hits = list(re.finditer(pattern, body))
+            except re.error as e:
+                fail(f"{LOCAL_DENY} 里有非法正则 {pattern!r}: {e}")
+                continue
+            for m in hits:
                 line = body[: m.start()].count("\n") + 1
                 fail(f"{p}:{line} 命中{label}: {m.group(0)!r}")
                 bad += 1
@@ -256,8 +357,20 @@ def check_scripts():
         ok(f"{p} 语法通过")
 
 
+def check_cli():
+    """语法过了不代表能跑：入口至少得能自报版本。"""
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts/recon.py"), "--version"],
+                       capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout.startswith("recon "):
+        ok(f"recon 入口可用（{r.stdout.strip()}）")
+    else:
+        fail(f"recon 入口异常: {(r.stderr or r.stdout).strip()[:200]}")
+
+
 def main():
     check_structure()
+    check_workspace_ignore()
+    check_local_deny()
     check_frontmatter()
     check_limits()
     check_disclosure()
@@ -265,6 +378,7 @@ def main():
     check_links()
     check_forbidden()
     check_scripts()
+    check_cli()
 
     print("== 通过 ==")
     for m in oks:

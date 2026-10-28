@@ -75,8 +75,8 @@
 
 ```bash
 # 跑矩阵时留存原始 HTML，再用同一选择器离线复核
-scripts/client-matrix.sh "$URL" --selector "#content" --save-html ./raw
-scripts/client-matrix.sh --html ./raw/p1-curl-chrome.html --selector "#content"
+scripts/client-matrix.sh "$URL" --selector "#content" --save-html recon/raw
+scripts/client-matrix.sh --html recon/raw/p1-curl.html --selector "#content"
 
 # content 列：N=有正文 / 0=容器在但空 / missing=页面里没这个容器
 #            ?unsupported=选择器太复杂，改用真实浏览器取值

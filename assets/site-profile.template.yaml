@@ -1,4 +1,4 @@
-# 复制到 <你的项目根>/sites/<host>/profile.yaml 后逐项填写。
+# 复制到 <你的项目根>/recon/<代号>/profile.yaml 后逐项填写（工作区骨架见 assets/workspace/）。
 # 规则：不写 Cookie 名/值、site id、hash、签名密钥；没有证据的字段写 assumed。
 # schema 说明见 references/site-profile.md。
 

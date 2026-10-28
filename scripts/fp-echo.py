@@ -87,7 +87,7 @@ def snapshot(raw, include_ip):
     return snap
 
 
-def diff(a, b):
+def diff(a, b, as_json=False):
     keys = sorted(set(a) | set(b))
     same, rows = 0, []
     for k in keys:
@@ -95,6 +95,16 @@ def diff(a, b):
         eq = va == vb
         same += eq
         rows.append((k, va, vb, eq))
+    differs = len(rows) - same
+
+    if as_json:
+        print(json.dumps({
+            "total": len(rows),
+            "differ": differs,
+            "fields": [{"name": k, "a": va, "b": vb, "same": eq} for k, va, vb, eq in rows],
+        }, ensure_ascii=False, indent=2))
+        return differs
+
     width = max(len(r[0]) for r in rows) if rows else 0
 
     def fmt(v):
@@ -106,7 +116,6 @@ def diff(a, b):
     for k, va, vb, eq in rows:
         fa, fb = fmt(va), fmt(vb)
         print(f"{k.ljust(width)}  {fa[:34]:<34}  {fb[:34]:<34}  {'同' if eq else '异'}")
-    differs = len(rows) - same
     print(f"\n{len(rows)} 个字段，{differs} 个不同")
     return differs
 
@@ -120,6 +129,7 @@ def main():
     ap.add_argument("--include-ip", action="store_true", help="把出口 IP 写进快照")
     ap.add_argument("--out", help="写入文件；缺省打印到 stdout")
     ap.add_argument("--diff", nargs=2, metavar=("A", "B"), help="比对两份已保存的快照")
+    ap.add_argument("--json", action="store_true", help="--diff 时输出 JSON")
     args = ap.parse_args()
 
     if args.diff:
@@ -130,7 +140,7 @@ def main():
             a = json.load(f)
         with open(args.diff[1], encoding="utf-8") as f:
             b = json.load(f)
-        sys.exit(1 if diff(a, b) else 0)
+        sys.exit(1 if diff(a, b, args.json) else 0)
 
     snap = snapshot(fetch(args.url, args.via, args.impersonate, args.timeout), args.include_ip)
     text = json.dumps(snap, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
