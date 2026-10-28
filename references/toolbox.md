@@ -11,7 +11,9 @@
 | HTTP 客户端对照 | `scripts/client-matrix.sh` | 手工 curl | 一次跑多栈，自动节流 |
 | 浏览器级 TLS 指纹 | `curl_cffi`（`impersonate`） | 回显服务 | 唯一需要第三方 Python 包的地方 |
 | H2 参数指纹 | 回显服务 | 本地抓包 | 自建 H2 客户端成本高，不值得 |
-| 页面内指纹 | `scripts/fingerprint-probe.js` | DevTools 控制台 | 探针已含 CDP 泄漏检测 |
+| 页面内指纹 | `scripts/fingerprint-probe.js` | 浏览器侧读数页 | 探针已含 CDP 泄漏检测；读数页见 fingerprint-methods.md |
+| 网络栈指纹快照 | `scripts/fp-echo.py` | tls 回显 + `jq` | 归一化成可 diff 的 JSON |
+| 取内容（阶梯） | `scripts/fetch-page.py` | 手工逐级 curl | 失败时顺带给出 WAF 归类 |
 | 浏览器自动化 | 你的渲染服务 / Playwright | 直连 CDP | 优先复用已有渲染链路 |
 | 内容区度量 | `client-matrix.sh --selector` / `--html` | 浏览器 evaluate | 整页长度不可用 |
 | 可行性快筛 | `scripts/quick-check.sh` | 手工三步 | 有界：每 URL 1 次 + 每 origin 1 次 robots |

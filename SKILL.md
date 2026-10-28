@@ -1,8 +1,8 @@
 ---
 name: site-accessibility-recon
-description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标验证对策。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，可行性快筛，bot defense triage，scrape reliability。
+description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，遇 WAF 先按机制归类再选合规路径，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标验证对策。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，可行性快筛，bot defense triage，scrape reliability。
 metadata:
-  version: 1.1.0
+  version: 1.2.0
   scope: diagnostics
 ---
 
@@ -90,6 +90,7 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 | 设计对比实验、处理非确定性 | [references/evidence-matrix.md](references/evidence-matrix.md) |
 | 算指标、防虚高、做回归 | [references/metrics.md](references/metrics.md) |
 | 选最低成本对策 | [references/countermeasure-ladder.md](references/countermeasure-ladder.md) |
+| 遇到 WAF：归类 + 选合规处理路径 | [references/waf-classes.md](references/waf-classes.md) |
 | 落站点档案、生成报告 | [references/site-profile.md](references/site-profile.md) |
 | 先装环境、知道用哪个工具、别踩版本坑 | [references/toolbox.md](references/toolbox.md) |
 | 做指纹分析（采集 / 自洽 / 差分 / 归因） | [references/fingerprint-methods.md](references/fingerprint-methods.md) |
@@ -116,6 +117,13 @@ scripts/client-matrix.sh --html ./raw/p1-curl-chrome.html --selector "#content"
 
 # 浏览器内指纹快照（含 CDP 泄漏探针），在页面上下文执行
 scripts/fingerprint-probe.js
+
+# 网络栈指纹：采集快照并逐字段 diff（配合浏览器侧与网络侧两个读数页）
+scripts/fp-echo.py --via cffi --impersonate chrome --out chrome.json
+scripts/fp-echo.py --diff baseline.json chrome.json
+
+# 按客户端阶梯取内容，失败时给出 WAF 机制归类
+scripts/fetch-page.py 'https://example.com/a' --selector "#content"
 
 # 从档案 + 证据表生成报告（缺的字段写「未记录」，不编数字）
 scripts/report.py --profile sites/example.com/profile.yaml --out sites/example.com/report.md

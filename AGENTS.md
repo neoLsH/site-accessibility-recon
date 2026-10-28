@@ -40,6 +40,7 @@
 - 对策阶梯与决策树：[references/countermeasure-ladder.md](references/countermeasure-ladder.md)
 - 站点档案 schema 与报告生成：[references/site-profile.md](references/site-profile.md)
 - 默认工具链与版本坑：[references/toolbox.md](references/toolbox.md)
+- 遇到 WAF 的六类机制与合规路径：[references/waf-classes.md](references/waf-classes.md)
 - 指纹分析手法：[references/fingerprint-methods.md](references/fingerprint-methods.md)
 - 案例：[references/cases/](references/cases/)
 
@@ -50,6 +51,8 @@ scripts/preflight.sh                                             # 环境自检
 scripts/quick-check.sh --from urls.txt --selector '#content'     # 可行性快筛（含 robots 检查）
 scripts/client-matrix.sh <url> --selector '#content' --passes 3   # 客户端栈矩阵 + 内容区长度
 scripts/fingerprint-probe.js                                     # 页面内指纹快照 + CDP 泄漏探针
+scripts/fp-echo.py --diff a.json b.json                          # 网络指纹快照 + 逐字段 diff
+scripts/fetch-page.py <url> --selector '#content'                # 客户端阶梯取内容 + WAF 归类
 scripts/report.py --profile sites/<host>/profile.yaml            # 从档案生成报告
 ```
 

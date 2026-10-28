@@ -65,7 +65,15 @@ A diagnosable, layered playbook for web access failures — built for agents, po
 ./scripts/client-matrix.sh 'https://example.com/article/1' --selector '#content' --passes 3
 
 # 5. 分诊：链路失败？反爬拦截？内容不存在？
-#    见 references/triage-and-gates.md
+#    见 references/triage-and-gates.md；判进反爬拦截后按 references/waf-classes.md 归类
+
+# 5.1 指纹细化：两个固定读数页——浏览器侧 ippure.com/fingerprint.html，网络侧 tls 回显
+./scripts/fp-echo.py --out baseline.json
+./scripts/fp-echo.py --via cffi --impersonate chrome --out chrome.json
+./scripts/fp-echo.py --diff baseline.json chrome.json
+
+# 5.2 确认路径可行且拿到内容（由低到高换栈，失败给出 WAF 归类）
+./scripts/fetch-page.py 'https://example.com/article/1' --selector '#content'
 
 # 6. 自底向上隔离，画闸门图，落 sites/<host>/profile.yaml（模板见 assets/）
 
@@ -106,7 +114,8 @@ references/
   countermeasure-ladder.md    # 对策阶梯 + 决策树
   site-profile.md             # 站点档案 schema + 报告生成
   toolbox.md                  # 默认工具链、安装、版本陷阱
-  fingerprint-methods.md      # 指纹分析：采集 / 自洽 / 差分 / 归因
+  fingerprint-methods.md      # 指纹分析：采集 / 自洽 / 差分 / 归因 + 两个默认读数页
+  waf-classes.md              # WAF 六类机制、判据与合规处理路径
   cases/                      # 脱敏案例（推理链）
 assets/
   site-profile.template.yaml  # 站点档案模板
@@ -116,6 +125,8 @@ scripts/
   quick-check.sh              # 可行性快筛（robots 检查 + 1 请求 + 内容区）
   client-matrix.sh            # 客户端栈矩阵
   fingerprint-probe.js        # 指纹快照 + CDP 泄漏探针
+  fp-echo.py                  # 网络栈指纹快照 + 逐字段 diff
+  fetch-page.py               # 客户端阶梯取内容 + WAF 归类
   report.py                   # 从 profile.yaml + evidence.csv 生成报告
   self-check.py               # 结构与脱敏校验（可用于 CI）
 adapters/
@@ -151,6 +162,7 @@ python3 scripts/self-check.py
 4. **按需加载。** `SKILL.md` 保持精简，细节下沉到 `references/`，避免把整本手册塞进上下文。
 5. **档案优于报告。** 报告给人看，档案给系统用。
 6. **承认不可解。** 明确写出“这条路由当前无解”，比无限试错更有价值。
+7. **归类不绕过。** WAF 按机制归类是为了选对合规路径，不是提供绕过手法。
 
 ## 边界
 
@@ -170,7 +182,7 @@ python3 scripts/self-check.py
 
 ## 状态
 
-v1.1.0 — 新增默认工具链（`toolbox.md` + `preflight.sh`）、指纹分析手法（`fingerprint-methods.md` + 探针扩展）、可行性快筛（`quick-check.sh`）与报告生成（`report.py`）。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
+v1.2.0 — 指纹细化（两个默认读数页 + `fp-echo.py` 快照 diff）、WAF 六类归因（`waf-classes.md`）与客户端阶梯取内容（`fetch-page.py`）。v1.1.0 引入默认工具链（`toolbox.md` + `preflight.sh`）、指纹分析手法、可行性快筛（`quick-check.sh`）与报告生成（`report.py`）。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
 
 ## License
 

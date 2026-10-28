@@ -17,6 +17,38 @@ expression: "(async () => JSON.stringify(await fingerprintProbe()))()"
 awaitPromise: true, returnByValue: true
 ```
 
+## 1.5 两个默认读数页
+
+自己写探针容易漏项，先用两个固定页面把「全量」拿回来，再决定细看哪几项：
+
+| 读数页 | 覆盖 | 怎么用 |
+|---|---|---|
+| `https://ippure.com/fingerprint.html` | 浏览器侧：UA / platform / Client Hints / WebGL / canvas / audio / 字体 / 时区 / 几何 | 真实浏览器与自动化内核**各开一次**，并排看；同页面同结构，省掉逐项手抄 |
+| `https://tls.peet.ws/api/all` | 网络侧：JA3 / JA4 / H2 SETTINGS 与 Akamai 指纹 / 协商版本 | 命令行采集，见下 |
+
+```bash
+# 采集当前 curl 栈 → 与 client-matrix.sh 的 curl 行同栈
+scripts/fp-echo.py --out baseline.json
+
+# 采集浏览器级栈（需要 curl_cffi）
+scripts/fp-echo.py --via cffi --impersonate chrome --out chrome.json
+
+# 逐字段比对：只关心「目标站层面会翻转」的那些差异
+scripts/fp-echo.py --diff baseline.json chrome.json
+```
+
+读法：
+
+- 网络侧先看 **JA3/JA4 + H2 SETTINGS** 两项。它们同时不同，说明换的是整条栈；只有一项不同，才需要再深挖。
+- 浏览器侧先看**自洽表**（下一节）里的矛盾项，再看 canvas / audio 是否**每次自变**。
+- 两个页面都只能证明「你这一侧长什么样」，**不能**证明目标站用了哪一项判定。归因必须回到目标站做单变量翻转实验。
+
+注意：
+
+- 两个都是第三方服务。别把带登录态 / Cookie 的请求发过去；`--include-ip` 才会记录出口，默认不落。
+- 回显看到的是你的出口，不是你声称的身份；出口在变，读数就会变。
+- 浏览器页需要真实渲染环境；在没有 JS 的客户端里打开它只会得到空壳。
+
 ## 2 自洽：先证明「像一个身份」
 
 | 维度 | 期望关系 | 矛盾的典型含义 |
@@ -57,7 +89,8 @@ awaitPromise: true, returnByValue: true
 ### TLS ClientHello
 
 - 读数：JA3 / JA3N / JA4。**同 UA 不同栈**才是有效对照。
-- 命令：`scripts/client-matrix.sh <url> --tls-echo`。
+- 命令：`scripts/client-matrix.sh <url> --tls-echo`（跑矩阵时顺带读数）；
+  只想要可 diff 的快照时用 `scripts/fp-echo.py`。
 - 陷阱：同一份 curl 在 macOS（LibreSSL）与 Linux（OpenSSL）指纹不同；TLS 1.3 下 JA3 受扩展顺序影响更大。
 
 ### H2 与协议参数
