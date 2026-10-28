@@ -78,6 +78,9 @@ cp -R ./assets/workspace/. ./recon/
 # 5.2 确认路径可行且拿到内容（由低到高换栈，失败给出 WAF 归类）
 ./scripts/recon.py fetch 'https://example.com/article/1' --selector '#content'
 
+# 5.3 定判定面：它采集了什么、往哪上报（采集≠判定，见 references/detection-surface.md）
+./scripts/recon.py surface 'https://example.com/article/1'
+
 # 6. 自底向上隔离，画闸门图，落 recon/<代号>/profile.yaml（模板见 assets/）
 
 # 7. 从档案生成报告，再跑自检，零失败再提交
@@ -95,7 +98,7 @@ await fingerprintProbe()
 
 ## CLI 入口
 
-六个脚本收敛成一个入口，参数原样透传给底层脚本：
+七个脚本收敛成一个入口，参数原样透传给底层脚本：
 
 ```
 recon <命令> [参数...] [--json]
@@ -107,6 +110,7 @@ recon <命令> [参数...] [--json]
 | `quick` | `quick-check.sh` | 可行性快筛：每 URL 1 请求 + robots |
 | `matrix` | `client-matrix.sh` | 客户端栈矩阵 + 内容区长度 |
 | `fetch` | `fetch-page.py` | 客户端阶梯取内容 + WAF 归类 |
+| `surface` | `js-surface.py` | 站点 JS 采集面：静态扫六类采集与上报通道 |
 | `fp` | `fp-echo.py` | `fp collect` 采集快照 / `fp diff A B` 比对 |
 | `report` | `report.py` | `recon report <档案>` 生成报告 |
 | `check` | `self-check.py` | 仓库自检 |
@@ -120,7 +124,7 @@ recon <命令> [参数...] [--json]
            "reason": "内容区 156 低于下限 200，且无 CSR 迹象"}]}
 ```
 
-`fp` → `{"command":"fp","diff":{"total":3,"differ":2,"fields":[...]}}`，`fetch` → `records`，`check` → `failures`，`report` → `out` / `report`。`ok` 直接取自退出码，所以「有 URL 不可行」「两份指纹有差异」都是 `false`。
+`fp` → `{"command":"fp","diff":{"total":3,"differ":2,"fields":[...]}}`，`fetch` → `records`，`surface` → `categories` / `suggest`，`check` → `failures`，`report` → `out` / `report`。`ok` 直接取自退出码，所以「有 URL 不可行」「两份指纹有差异」都是 `false`。
 
 想当全局命令用：
 
@@ -157,6 +161,7 @@ references/
   toolbox.md                  # 默认工具链、安装、版本陷阱
   fingerprint-methods.md      # 指纹分析：采集 / 自洽 / 差分 / 归因 + 两个默认读数页
   waf-classes.md              # WAF 六类机制、判据与合规处理路径
+  detection-surface.md        # 判定面：客户端采集 vs 服务端评分 + 五个判定实验
   cases/                      # 脱敏案例（推理链）
 assets/
   site-profile.template.yaml  # 站点档案模板
@@ -166,13 +171,14 @@ assets/
     README.md                 # 工作区约定：命名、规矩、重来一次
     raw/.gitkeep              # 原始响应体目录
 scripts/
-  recon.py                    # 统一入口：doctor / quick / matrix / fetch / fp / report / check
+  recon.py                    # 统一入口：doctor / quick / matrix / fetch / surface / fp / report / check
   preflight.sh                # 环境自检（必需 / 可选工具与版本）
   quick-check.sh              # 可行性快筛（robots 检查 + 1 请求 + 内容区）
   client-matrix.sh            # 客户端栈矩阵
   fingerprint-probe.js        # 指纹快照 + CDP 泄漏探针
   fp-echo.py                  # 网络栈指纹快照 + 逐字段 diff
   fetch-page.py               # 客户端阶梯取内容 + WAF 归类
+  js-surface.py               # 站点 JS 采集面静态扫描
   report.py                   # 从 profile.yaml + evidence.csv 生成报告
   self-check.py               # 结构与脱敏校验（可用于 CI）
 adapters/
@@ -210,6 +216,7 @@ python3 scripts/self-check.py
 6. **承认不可解。** 明确写出“这条路由当前无解”，比无限试错更有价值。
 7. **归类不绕过。** WAF 按机制归类是为了选对合规路径，不是提供绕过手法。
 8. **记录留在本地。** 工作区放项目根，骨架进仓库、内容不进；要外发就另存脱敏版。
+9. **先定判定面再动手。** 边缘、前端采集、服务端评分三者的修复杠杆互斥；采集不等于判定，只有 ablation 能证明因果。
 
 ## 边界
 
@@ -230,7 +237,7 @@ python3 scripts/self-check.py
 
 ## 状态
 
-v1.4.0 — 收敛出 CLI 入口 `scripts/recon.py`（`doctor|quick|matrix|fetch|fp|report|check`），参数透传、`--json` 输出单个对象、退出码不变；`fp diff --json` 与 `recon --version` 一并补上，自检新增「入口可运行」。v1.3.0 落地 `recon/` 工作区：`assets/workspace/` 提供骨架（`.gitignore` + 约定说明 + `raw/`），复制到项目根后记录默认不入库、只有壳被跟踪；全仓路径从 `sites/<host>` 统一为 `recon/<代号>`。v1.2.0 引入指纹细化（两个默认读数页 + `fp-echo.py` 快照 diff）、WAF 六类归因（`waf-classes.md`）与客户端阶梯取内容（`fetch-page.py`）。v1.1.0 引入默认工具链（`toolbox.md` + `preflight.sh`）、指纹分析手法、可行性快筛（`quick-check.sh`）与报告生成（`report.py`）。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
+v1.5.0 — 补上**判定面**这一维：`references/detection-surface.md` 区分边缘、前端采集→后端判定、纯后端评分三个位置，说清 TLS/H2 指纹不是 JS 采得到的，并给出五个判定实验（固定产物换出口 / 改节奏与序列 / 拦掉上报端点 / 逐项 ablation / 人工对照）；配套 `scripts/js-surface.py`（`recon surface`）静态扫六类采集面与上报通道，输出「先 hook 哪几个」。v1.4.0 收敛出 CLI 入口 `scripts/recon.py`（`doctor|quick|matrix|fetch|fp|report|check`），参数透传、`--json` 输出单个对象、退出码不变；`fp diff --json` 与 `recon --version` 一并补上，自检新增「入口可运行」。v1.3.0 落地 `recon/` 工作区：`assets/workspace/` 提供骨架（`.gitignore` + 约定说明 + `raw/`），复制到项目根后记录默认不入库、只有壳被跟踪；全仓路径从 `sites/<host>` 统一为 `recon/<代号>`。v1.2.0 引入指纹细化（两个默认读数页 + `fp-echo.py` 快照 diff）、WAF 六类归因（`waf-classes.md`）与客户端阶梯取内容（`fetch-page.py`）。v1.1.0 引入默认工具链（`toolbox.md` + `preflight.sh`）、指纹分析手法、可行性快筛（`quick-check.sh`）与报告生成（`report.py`）。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
 
 ## License
 

@@ -13,6 +13,7 @@
 | H2 参数指纹 | 回显服务 | 本地抓包 | 自建 H2 客户端成本高，不值得 |
 | 页面内指纹 | `scripts/fingerprint-probe.js` | 浏览器侧读数页 | 探针已含 CDP 泄漏检测；读数页见 fingerprint-methods.md |
 | 网络栈指纹快照 | `scripts/fp-echo.py` | tls 回显 + `jq` | 归一化成可 diff 的 JSON |
+| 站点 JS 采集面 | `scripts/js-surface.py` | 手工 grep bundle | 静态命中 ≠ 运行时调用，需动态确认 |
 | 取内容（阶梯） | `scripts/fetch-page.py` | 手工逐级 curl | 失败时顺带给出 WAF 归类 |
 | 浏览器自动化 | 你的渲染服务 / Playwright | 直连 CDP | 优先复用已有渲染链路 |
 | 内容区度量 | `client-matrix.sh --selector` / `--html` | 浏览器 evaluate | 整页长度不可用 |
@@ -54,4 +55,5 @@ python3 -m pip install --user pyyaml
 | curl_cffi | 指纹仿真的效果 | 仿真 ≠ 等同，仍有残余差异 |
 | headless 浏览器 | 运行时是否被识别 | 真机行为、真实用户行为 |
 | 回显服务 | 你这一侧的指纹是什么 | 目标站点如何判定这个指纹 |
+| JS 采集面扫描 | 站点代码里出现了哪些采集调用 | 这些调用运行时是否执行、是否进了模型 |
 | 一次成功请求 | 该路径当前可行 | 长期可行（可能只是概率门的一次命中） |

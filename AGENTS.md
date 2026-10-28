@@ -34,6 +34,7 @@
 ## 按需读取
 
 - 三态判据与闸门图：[references/triage-and-gates.md](references/triage-and-gates.md)
+- 判定面（客户端采集 vs 服务端评分）与五个判定实验：[references/detection-surface.md](references/detection-surface.md)
 - 分层判据与探针：[references/layers.md](references/layers.md)
 - 每层还有哪些信号没查：[references/vectors.md](references/vectors.md)
 - 实验设计与非确定性：[references/evidence-matrix.md](references/evidence-matrix.md)
@@ -55,6 +56,7 @@ scripts/recon.py matrix <url> --selector '#content' --passes 3   # 客户端栈�
 scripts/fingerprint-probe.js                                    # 页面内指纹快照 + CDP 泄漏探针
 scripts/recon.py fp diff a.json b.json                          # 网络指纹快照 + 逐字段 diff
 scripts/recon.py fetch <url> --selector '#content'               # 客户端阶梯取内容 + WAF 归类
+scripts/recon.py surface <url>                                  # 站点 JS 采集面：采了什么、往哪上报
 scripts/recon.py report recon/<代号>/profile.yaml                # 从档案生成报告
 ```
 

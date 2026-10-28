@@ -47,6 +47,7 @@
 | CDP 痕迹 | Error.stack getter、Proxy ownKeys 探针 | 只查 webdriver，不查调试协议侧 | S3 |
 | 启动参数（有害项 / 隐身项） | 逐项开关做对照 | 禁用 WebGL 反而暴露「这不像真浏览器」 | S3 / S5 |
 | GPU / 软件渲染 | WebGL renderer 串、渲染耗时 | 忽略软件渲染与硬件渲染的差异 | S5 |
+| 采集上报通道 | 抓包找非常规 POST / beacon，abort 后看是否改判 | 把「采了」当成「判定用了」 | — |
 
 ## 行为（L4.5）
 

@@ -10,6 +10,7 @@
     recon quick https://a https://b --selector '#content'
     recon matrix <url> --selector '#content' --passes 3
     recon fetch <url> --selector '#content'
+    recon surface <url>                             # 站点 JS 采集面（静态）
     recon fp collect --via cffi --out chrome.json
     recon fp diff baseline.json chrome.json
     recon report recon/forum/profile.yaml --out recon/forum/report.md
@@ -20,7 +21,7 @@
 子命令与脚本的对应：
     doctor → preflight.sh    quick → quick-check.sh    matrix → client-matrix.sh
     fetch  → fetch-page.py   fp    → fp-echo.py        report → report.py
-    check  → self-check.py
+    surface → js-surface.py  check → self-check.py
 """
 
 import json
@@ -37,6 +38,7 @@ TOOLS = {
     "quick": ("bash", "quick-check.sh", "可行性快筛：每 URL 1 请求 + robots，先分掉死路"),
     "matrix": ("bash", "client-matrix.sh", "客户端栈矩阵：同 URL 跑多种客户端，量内容区"),
     "fetch": ("python", "fetch-page.py", "客户端阶梯取内容，失败时给 WAF 机制归类"),
+    "surface": ("python", "js-surface.py", "站点 JS 采集面：静态扫六类指纹采集与上报通道"),
     "fp": ("python", "fp-echo.py", "网络栈指纹：采集快照 / 逐字段比对"),
     "report": ("python", "report.py", "从站点档案生成报告"),
     "check": ("python", "self-check.py", "仓库自检：结构、脱敏、脚本语法"),
@@ -130,6 +132,11 @@ def to_json(command, rc, out, err):
                 body["snapshot"] = json.loads(out)
             except ValueError:
                 body["ok"] = False
+    elif command == "surface":
+        try:
+            body.update(json.loads(out))
+        except ValueError:
+            body["ok"] = False
     elif command == "report":
         body["report"] = out if out.strip() and not out.startswith("已生成") else None
         body["out"] = out.strip()[4:] if out.startswith("已生成") else None
@@ -167,7 +174,7 @@ def main(argv):
             rest = ["--diff"] + rest
             if as_json:
                 rest.append("--json")
-    elif cmd == "fetch" and as_json:
+    elif cmd in ("fetch", "surface") and as_json:
         rest.append("--json")
 
     # report 的档案既是位置参数也是 --profile；本 CLI 允许 recon report <档案>

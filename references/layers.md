@@ -116,6 +116,8 @@ curl -v -x "$PROXY" -o /dev/null -w '%{http_code} %{size_download} %{url_effecti
 
 **探针**：`scripts/fingerprint-probe.js`，在页面上下文执行，输出一份可 diff 的快照。
 
+**判定面**：这里列的是「被采集什么」，不等于「什么进了模型」。采集后由谁判定、怎么证明，见 [detection-surface.md](detection-surface.md)。
+
 **关键认知**
 
 - **自洽是必要条件，不是充分条件。** 把 UA/平台/WebGL/时区/语言/几何全部对齐后，目标站的墙可能依然存在。
@@ -175,7 +177,7 @@ P3 内容已删除 / 真 404 —— 无解
 
 ## L6 服务端决策层
 
-见 [triage-and-gates.md](triage-and-gates.md)。要点：把观察到的信号组合成**闸门图**，并区分“确定性闸门”与“概率门”。
+见 [triage-and-gates.md](triage-and-gates.md)。要点：把观察到的信号组合成**闸门图**，并区分“确定性闸门”与“概率门”。判定面（边缘 / 采集上报 / 纯后端评分）怎么分，见 [detection-surface.md](detection-surface.md)。
 
 ## L7 观测层
 

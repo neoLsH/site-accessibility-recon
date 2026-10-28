@@ -2,7 +2,7 @@
 name: site-accessibility-recon
 description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，遇 WAF 先按机制归类再选合规路径，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标验证对策。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，可行性快筛，bot defense triage，scrape reliability。
 metadata:
-  version: 1.4.0
+  version: 1.5.0
   scope: diagnostics
 ---
 
@@ -82,11 +82,10 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 
 | 你要做的事 | 读这个 |
 |---|---|
-| 判定异常属于哪一态、画闸门图 | [references/triage-and-gates.md](references/triage-and-gates.md) |
+| 判定异常属于哪一态、画闸门图、判定面在客户端还是服务端 | [triage-and-gates.md](references/triage-and-gates.md) · [detection-surface.md](references/detection-surface.md) |
 | 逐层的判据、探针、常见误判 | [references/layers.md](references/layers.md) |
 | 这一层还有哪些信号没查（查漏表） | [references/vectors.md](references/vectors.md) |
-| 设计对比实验、处理非确定性 | [references/evidence-matrix.md](references/evidence-matrix.md) |
-| 算指标、防虚高、做回归 | [references/metrics.md](references/metrics.md) |
+| 设计对比实验、算指标、防虚高、做回归 | [evidence-matrix.md](references/evidence-matrix.md) · [metrics.md](references/metrics.md) |
 | 选最低成本对策 | [references/countermeasure-ladder.md](references/countermeasure-ladder.md) |
 | 遇到 WAF：归类 + 选合规处理路径 | [references/waf-classes.md](references/waf-classes.md) |
 | 落站点档案、生成报告 | [references/site-profile.md](references/site-profile.md) |
@@ -106,7 +105,6 @@ scripts/recon.py quick --from urls.txt --min-content 500 --json
 
 # 客户端栈矩阵：同一 URL 跑多种客户端，输出状态码/大小/内容区字符数/耗时/最终 URL
 scripts/recon.py matrix https://example.com/page --selector "#content" --passes 3 --save-html recon/raw
-
 # 已知目标有短窗限速：只打两个客户端
 scripts/recon.py matrix https://example.com/page --clients curl,node
 
@@ -122,6 +120,9 @@ scripts/recon.py fp diff baseline.json chrome.json
 
 # 按客户端阶梯取内容，失败时给出 WAF 机制归类
 scripts/recon.py fetch 'https://example.com/a' --selector "#content"
+
+# 站点 JS 采集面：它采了什么、往哪上报；先 hook 哪几个（判定面见 detection-surface.md）
+scripts/recon.py surface https://example.com/page
 
 # 从档案 + 证据表生成报告（缺的字段写「未记录」，不编数字）
 scripts/recon.py report recon/forum/profile.yaml --out recon/forum/report.md
