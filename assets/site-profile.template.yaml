@@ -1,0 +1,40 @@
+# 复制到 <你的项目根>/sites/<host>/profile.yaml 后逐项填写。
+# 规则：不写 Cookie 名/值、site id、hash、签名密钥；没有证据的字段写 assumed。
+# schema 说明见 references/site-profile.md。
+
+host: example.com
+profile_version: 1
+last_verified: 2026-01-01      # 超过 30 天视为待复验
+confidence: observed           # observed | mechanism | efficacy
+
+routes:
+  - pattern: "^/path/"
+    kind: detail               # list | detail | search | profile
+    content_selector: ""       # 正文容器选择器，用于量完整率
+    min_content_len: 0         # 该路由正常量级的下限（用真实浏览器取分布）
+
+fetcher:
+  mode: http-document          # http-document | browser
+  reason: ""
+  user_agent: ""
+  headers: {}
+
+network:
+  proxy: none                  # none | required | sticky-per-ip
+  rate_limit: ""
+  notes: ""
+
+gates:
+  - name: ""
+    layer: L2                  # L1..L7
+    dimension: ""              # egress | client_stack | request_semantics | runtime | credential | account
+    status: assumed            # pass | fail | assumed
+    evidence: ""
+
+metrics:
+  # 还没测就写 null，不要写 0（0 会被下游读成「测过且为 0」）
+  baseline: null
+  after: null
+
+known_issues: []
+non_goals: []
