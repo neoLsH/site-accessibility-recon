@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 先读方法论文档
+    url: https://github.com/neoLsH/site-accessibility-recon/blob/main/SKILL.md
+    about: 分诊、分层、闸门图的定义都在 SKILL.md 与 references/ 里，提问前先确认不是口径问题。

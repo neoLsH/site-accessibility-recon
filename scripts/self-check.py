@@ -12,6 +12,8 @@
   8. 工作区骨架（recon/）：内容默认被忽略、骨架可入库
   9. 内网词表：默认从仓库外读取（$RECON_DENY / ~/.config/site-recon/）；若出现在仓库内必须被忽略
  10. recon 入口可运行（--version 自检）
+ 11. 案例结构：references/cases/ 每篇含现象 / 可迁移规律 / 置信度
+ 12. 版本记录：CHANGELOG.md 含当前版本条目
 
 退出码：0 通过，1 有问题。
 """
@@ -29,6 +31,8 @@ REQUIRED = [
     "SKILL.md",
     "AGENTS.md",
     "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
     "references/triage-and-gates.md",
     "references/layers.md",
     "references/vectors.md",
@@ -40,6 +44,8 @@ REQUIRED = [
     "references/fingerprint-methods.md",
     "references/waf-classes.md",
     "references/detection-surface.md",
+    "references/anti-patterns.md",
+    "references/review-scorecard.md",
     "assets/site-profile.template.yaml",
     "assets/report-template.md",
     "assets/workspace/.gitignore",
@@ -240,6 +246,51 @@ def check_version():
         fail(f"README 未标注版本 v{v}")
 
 
+def check_cases():
+    """案例投稿门禁：结构可机检的部分（章节齐全、编号规范、置信度已标）。"""
+    case_dir = os.path.join(ROOT, "references", "cases")
+    if not os.path.isdir(case_dir):
+        return
+    need = ["## 现象", "## 可迁移规律", "## 置信度"]
+    levels = re.compile(r"observed|mechanism|efficacy|assumed|观察|机制|效果|高|中|低")
+    bad = 0
+    for name in sorted(os.listdir(case_dir)):
+        if not name.endswith(".md"):
+            continue
+        p = f"references/cases/{name}"
+        if not re.match(r"^\d{2}-[a-z0-9-]+\.md$", name):
+            fail(f"{p}: 文件名应为 NN-slug.md")
+            bad += 1
+            continue
+        body = read(p)
+        absent = [h for h in need if h not in body]
+        if absent:
+            fail(f"{p}: 缺少章节 {' / '.join(h.lstrip('# ') for h in absent)}")
+            bad += 1
+            continue
+        if len(re.findall(r"^## ", body, re.M)) < 5:
+            fail(f"{p}: 中间分析段太少（## 级标题 < 5），六段结构不完整")
+            bad += 1
+            continue
+        tail = body.split("## 置信度", 1)[1]
+        if not levels.search(tail):
+            fail(f"{p}: 置信度段没有标级别（observed / mechanism / efficacy / assumed）")
+            bad += 1
+    if bad == 0:
+        ok("案例结构：章节齐全、编号规范、置信度已标")
+
+
+def check_changelog():
+    m = re.search(r"^\s+version:\s*(\S+)\s*$", read("SKILL.md"), re.M)
+    if not m:
+        return
+    v = m.group(1)
+    if re.search(rf"^##\s*\[{re.escape(v)}\]", read("CHANGELOG.md"), re.M):
+        ok(f"CHANGELOG 含 v{v} 条目")
+    else:
+        fail(f"CHANGELOG.md 没有 v{v} 的条目")
+
+
 def check_links():
     pattern = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
     bad = 0
@@ -377,6 +428,8 @@ def main():
     check_limits()
     check_disclosure()
     check_version()
+    check_cases()
+    check_changelog()
     check_links()
     check_forbidden()
     check_scripts()

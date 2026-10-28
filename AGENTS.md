@@ -44,6 +44,7 @@
 - 默认工具链与版本坑：[references/toolbox.md](references/toolbox.md)
 - 遇到 WAF 的六类机制与合规路径：[references/waf-classes.md](references/waf-classes.md)
 - 指纹分析手法：[references/fingerprint-methods.md](references/fingerprint-methods.md)
+- 交付前自查：常见误判黑名单 [references/anti-patterns.md](references/anti-patterns.md)；这次诊断站不站得住 [references/review-scorecard.md](references/review-scorecard.md)
 - 案例：[references/cases/](references/cases/)
 
 ## 脚本
@@ -73,5 +74,6 @@ scripts/recon.py report recon/<代号>/profile.yaml                # 从档案�
 - `SKILL.md` 是唯一入口，保持精简（≤150 行），细节下沉到 `references/`。
 - 每个 `references/*.md` 只回答一类问题，避免与 `SKILL.md` 重复。
 - 改动后跑 `python3 scripts/self-check.py`，必须零失败。
+- 改 `SKILL.md` 的 `metadata.version` 要同步 `README.md` 的「状态」与 `CHANGELOG.md` 的条目；案例投稿规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 案例必须脱敏：不含内网平台名、内网域名、IP、工单号、站点密钥或指纹常量。要拦的词写进 `~/.config/site-recon/denylist.local`（仓库外），不要放进仓库目录。
 - 新增结论时标注置信度：observed / mechanism / efficacy。

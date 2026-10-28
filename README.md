@@ -1,8 +1,21 @@
 # site-accessibility-recon
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-Standard-green)](https://agentskills.io)
+[![npx skills](https://img.shields.io/badge/npx%20skills-Compatible-blue)](https://github.com/vercel-labs/skills)
+[![check](https://github.com/neoLsH/site-accessibility-recon/actions/workflows/check.yml/badge.svg)](https://github.com/neoLsH/site-accessibility-recon/actions/workflows/check.yml)
+
 > 一个给 Agent 用的「网页可访问性排查」技能：回答**为什么抓不到 / 抓不全**，而不是教怎么过验证码。
 
 A diagnosable, layered playbook for web access failures — built for agents, portable across Claude Code, Codex CLI, Gemini CLI, Copilot CLI and plain `AGENTS.md`.
+
+**安装**（跨 runtime，自动识别你的 Agent）：
+
+```bash
+npx skills add neoLsH/site-accessibility-recon
+```
+
+没有 npx 或想手动装：`git clone` 后跑 `./adapters/install.sh <你的 skills 目录>`，见[安装与 Agent 适配](#安装与-agent-适配)。
 
 ## 为什么需要它
 
@@ -16,6 +29,41 @@ A diagnosable, layered playbook for web access failures — built for agents, po
 - 指标算错了：把登录墙、导航壳、502 都计成“可用”。
 
 通用工具的默认答案是“加 stealth / 换代理 / 解验证码”。这套 skill 的答案是**先分诊、再分层隔离、最后选最便宜的那扇门**，并且要求每个结论都有可复现的证据。
+
+## 一次真实运行长什么样
+
+拿一个**没有任何风控**的页面做演示（`example.com`），先快筛（下面按列对齐了，实际输出是 TAB 分隔，`--json` 才是机器格式）：
+
+```text
+$ ./scripts/recon.py quick https://example.com --selector body
+verdict  http  bytes  content  final_url            url                reason
+待定      200   577    156      https://example.com/  https://example.com  内容区 156 低于下限 200，且无 CSR 迹象
+
+结论：0/1 条可行，1 条需进一步分析
+```
+
+「待定」不是失败，是**信号不足**。接着跑客户端栈矩阵：
+
+```text
+$ ./scripts/recon.py matrix https://example.com --selector body --passes 2
+client               identity  http  bytes  content  time_s   final_url
+# pass 1/2
+curl(native)         chrome    200   577    156      0.546660  https://example.com/
+curl(native)         safari    200   577    156      0.626322  https://example.com/
+curl_cffi(chrome)    chrome    200   577    156      0.977     https://example.com/
+curl_cffi(safari)    safari    200   577    156      0.669     https://example.com/
+node-fetch(undici)   chrome    200   577    156      0.672     https://example.com/
+python-requests      chrome    200   577    156      0.644     https://example.com/
+# pass 2/2 —— http / bytes / content 与 pass 1 完全一致，仅耗时略变
+```
+
+怎么读这段：
+
+- 六行结果（四个客户端栈 × 两种身份）、两个 pass，**没有一个格翻转**，字节数恒为 577 → 不存在 L2 传输闸门，也没有 L3 身份规则。
+- 但 `content` 只有 156，低于下限 → 这时**不能**下「可访问」的结论，只能说「这个栈组能拿到内容，但内容区就这么长」。
+- 还缺真实浏览器基线这一行。补齐之前，正确输出就是「待定」。
+
+工具的价值不是给出答案，而是**把「还缺哪一行对照」指出来**——这正是[反模式黑名单](references/anti-patterns.md)第 1 条和第 9 条要防的事。
 
 ## 产出物
 
@@ -139,22 +187,36 @@ ln -s "$PWD/scripts/recon.py" ~/.local/bin/recon
 
 核心只有一份 `SKILL.md`，适配层是薄壳（只做路径与指针）。详见 [adapters/README.md](adapters/README.md)。
 
+```bash
+# 推荐：跨 runtime 安装器，自动识别你当前的 Agent
+npx skills add neoLsH/site-accessibility-recon
+
+# 或者显式指定目标目录
+./adapters/install.sh .claude/skills      # 项目级
+./adapters/install.sh ~/.codex/skills     # 用户级
+```
+
 | Agent | 方式 |
 |---|---|
 | Claude Code / Codex CLI / Gemini CLI / Copilot CLI | Agent Skills（`SKILL.md`） |
 | Cursor / Windsurf / 其他 | 指向 `AGENTS.md` |
 | 任意 Agent | 让它读 `SKILL.md` |
 
+运行时依赖写在 `SKILL.md` 的 `compatibility` 字段里：需要 python3 与 curl，建议装 `curl_cffi`；断网时脚本自动降级为离线复核。装完先跑 `./scripts/recon.py doctor` 看本机缺什么、缺了降级成什么。
+
 ## 目录结构
 
 ```
 SKILL.md                      # 唯一入口（Agent Skills 标准）
 AGENTS.md                     # 给只读 AGENTS.md 的 Agent
+README.md
+CHANGELOG.md                  # 版本记录
+CONTRIBUTING.md               # 贡献流程与案例投稿门槛
 references/
   triage-and-gates.md         # 三态判据 + 闸门图 + 归因树
   layers.md                   # 七层判据、探针、常见误判
   vectors.md                  # 检测向量全景（每层还有哪些信号）
-  evidence-matrix.md          # 实验设计 + 非确定性
+  evidence-matrix.md          # 实验设计 + 子 agent 编排 + 非确定性
   metrics.md                  # 双指标 + 虚高审计
   countermeasure-ladder.md    # 对策阶梯 + 决策树
   site-profile.md             # 站点档案 schema + 报告生成
@@ -162,6 +224,8 @@ references/
   fingerprint-methods.md      # 指纹分析：采集 / 自洽 / 差分 / 归因 + 两个默认读数页
   waf-classes.md              # WAF 六类机制、判据与合规处理路径
   detection-surface.md        # 判定面：客户端采集 vs 服务端评分 + 五个判定实验
+  anti-patterns.md            # 反模式黑名单（10 条，含替代做法）
+  review-scorecard.md         # 诊断质量评分卡（独立 reviewer 盲评）
   cases/                      # 脱敏案例（推理链）
 assets/
   site-profile.template.yaml  # 站点档案模板
@@ -184,7 +248,10 @@ scripts/
 adapters/
   README.md
   install.sh
-.github/workflows/check.yml   # 每次 push 跑 self-check
+.github/
+  workflows/check.yml         # 每次 push / PR 跑 self-check
+  PULL_REQUEST_TEMPLATE.md
+  ISSUE_TEMPLATE/
 LICENSE                       # MIT
 ```
 
@@ -194,7 +261,9 @@ LICENSE                       # MIT
 python3 scripts/self-check.py
 ```
 
-覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识）、全部脚本语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行。退出码非 0 即不可发布。
+覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识）、全部脚本语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行、**案例结构**（章节齐全、编号规范、置信度已标）、**版本记录**（`CHANGELOG.md` 含当前版本）。退出码非 0 即不可发布。
+
+自检只管仓库合不合规，不管某次诊断站不站得住——后者用 [诊断质量评分卡](references/review-scorecard.md)，由独立 reviewer agent 盲评。
 
 ## 案例
 
@@ -205,6 +274,8 @@ python3 scripts/self-check.py
 - [CDP 痕迹、延迟重定向与概率门](references/cases/03-cdp-runtime-leak.md) — 先审计自己；判定前先 settle；指标虚高 2 倍
 - [SaaS 风控的两道门](references/cases/04-saas-bot-defense.md) — 干净 IP 必要但非充分
 - [挑战页 vs 硬阻断](references/cases/05-challenge-vs-hard-block.md) — 先分类再动手
+
+投稿新案例见 [CONTRIBUTING.md](CONTRIBUTING.md#1-案例投稿最需要)；六段结构与脱敏由 CI 校验。
 
 ## 设计原则
 
@@ -229,15 +300,17 @@ python3 scripts/self-check.py
 
 ## 参与
 
-- 新增案例请按 `references/cases/` 的既有结构：现象 → 误判 → 决定性实验 → 结论 → 可迁移规律 → 置信度。
-- 新增结论请标注置信度；没有证据的写 `assumed`。
-- 新增检测向量请落到 `references/vectors.md`，并绑定层与对策级别。
+案例投稿、判据修正、脚本修复的门槛各不相同，完整规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。三条硬要求：
+
+- 案例走 `references/cases/` 的六段结构（现象 → 误判 / 分诊 → 决定性实验 → 结论 → 可迁移规律 → 置信度）；章节与脱敏由 CI 机器校验。
+- 新增结论标置信度；没有证据写 `assumed`，不要伪装成 mechanism。
 - **不出现任何内网平台名、内网域名、内部产品代号。** 要拦的词写进 `~/.config/site-recon/denylist.local`（每行一个正则，可用 `RECON_DENY` 指向别处），**不要放进仓库目录**——ignore 挡不住 `git add -f`、打包和整目录拷贝。自检会加载它一起扫；CI 没有这份词表，自动跳过该项。
-- 脱敏是硬要求，`python3 scripts/self-check.py` 必须通过。
+
+脱敏是硬要求，`python3 scripts/self-check.py` 必须通过。
 
 ## 状态
 
-v1.5.0 — 补上**判定面**这一维：`references/detection-surface.md` 区分边缘、前端采集→后端判定、纯后端评分三个位置，说清 TLS/H2 指纹不是 JS 采得到的，并给出五个判定实验（固定产物换出口 / 改节奏与序列 / 拦掉上报端点 / 逐项 ablation / 人工对照）；配套 `scripts/js-surface.py`（`recon surface`）静态扫六类采集面与上报通道，输出「先 hook 哪几个」。v1.4.0 收敛出 CLI 入口 `scripts/recon.py`（`doctor|quick|matrix|fetch|fp|report|check`），参数透传、`--json` 输出单个对象、退出码不变；`fp diff --json` 与 `recon --version` 一并补上，自检新增「入口可运行」。v1.3.0 落地 `recon/` 工作区：`assets/workspace/` 提供骨架（`.gitignore` + 约定说明 + `raw/`），复制到项目根后记录默认不入库、只有壳被跟踪；全仓路径从 `sites/<host>` 统一为 `recon/<代号>`。v1.2.0 引入指纹细化（两个默认读数页 + `fp-echo.py` 快照 diff）、WAF 六类归因（`waf-classes.md`）与客户端阶梯取内容（`fetch-page.py`）。v1.1.0 引入默认工具链（`toolbox.md` + `preflight.sh`）、指纹分析手法、可行性快筛（`quick-check.sh`）与报告生成（`report.py`）。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
+v1.6.0 — 对齐 Agent Skills 生态的六件事：`SKILL.md` frontmatter 补 `license` / `compatibility` / `allowed-tools`（运行时依赖从 `preflight.sh` 提到激活时可见）；新增 [反模式黑名单](references/anti-patterns.md)（10 条，含替代做法）与 [诊断质量评分卡](references/review-scorecard.md)（五维 100 分，独立 reviewer 盲评，产出 `recon/<代号>/REVIEW.md`）；[evidence-matrix.md](references/evidence-matrix.md) 补子 agent 编排（一个实验一个子 agent、只回报结构化行、缺对照整批作废）；新增 [CONTRIBUTING.md](CONTRIBUTING.md)、PR / issue 模板、`CHANGELOG.md`；自检增加案例结构与版本记录校验。此前各版本见 [CHANGELOG.md](CHANGELOG.md)。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
 
 ## License
 
