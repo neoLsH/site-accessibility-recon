@@ -1,8 +1,8 @@
 ---
 name: site-accessibility-recon
-description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”：先区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层做单变量隔离，产出闸门图、证据矩阵与机器可读站点档案，并用“可访问性成功率 / 内容完整率”双指标验证对策。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS 或 H2 指纹，JA3/JA4，headless 检测，bot defense triage，scrape reliability。
+description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标验证对策。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，可行性快筛，bot defense triage，scrape reliability。
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   scope: diagnostics
 ---
 
@@ -36,16 +36,19 @@ metadata:
 1. **先分诊，后归因。** 异常先归入三态之一：链路失败态 / 反爬拦截态 / 内容业务状态态。三者的对策互斥，误判一次，后面全错。
 2. **单变量 + 真实客户端对照。** 一次只改一个因素，并且始终保留真实浏览器（或已知可用客户端）作对照组。没有对照的因果结论，只能标为“假设”。
 
-## 四步流程
+## 流程
 
 | 步骤 | 产出 | 关键动作 |
 |---|---|---|
+| ⓪ 可行性快筛 | 每条候选路径的判定 | `quick-check.sh` 一发请求先分流出「直接放弃」与「值得深挖」，再决定投多少成本 |
 | ① 定口径 | URL / 路由集合、成功定义 | 先定义“可访问”和“完整”，再开始测 |
 | ② 分诊 | 异常样本的态别 | 三态判据，排除链路与内容状态 |
 | ③ 自底向上隔离 | 闸门图 + 证据矩阵 | L1→L5 逐层，单变量，留对照 |
 | ④ 对策与回归 | 站点档案 + 双指标前后对比 | 选最低成本闸门，A/B 验证，防非确定性误判 |
 
 对策等级另用 S0–S7 编号（见 [countermeasure-ladder.md](references/countermeasure-ladder.md)），与步骤编号区分开。
+
+⓪ 是**便宜的前置**，不是结论：它只回答“这条路值不值得走”。跳过它去深挖，常常是在一条合规禁止或路由不存在的路上烧预算。
 
 自底向上的原因：低层失败会让高层所有结论失效（链路不通时分析指纹毫无意义），而低层方案通常也更便宜。
 
@@ -73,7 +76,7 @@ metadata:
 | P0 | 证据矩阵 | 客户端栈 × 身份 × 路由 的结果表，含对照组 |
 | P0 | 站点档案 | `<项目根>/sites/<host>/profile.yaml`，机器可读，可直接驱动执行侧；模板见 [assets/site-profile.template.yaml](assets/site-profile.template.yaml)。`metrics` 未测就写 `null`，不要写 0 |
 | P1 | 双指标 | 可访问性成功率与内容完整率分开报，含虚高审计 |
-| P1 | 报告 | 复现步骤、根因、最低成本方案、回归方式；模板见 [assets/report-template.md](assets/report-template.md) |
+| P1 | 报告 | 复现步骤、根因、最低成本方案、回归方式；不要手写，用 `scripts/report.py` 从档案生成，模板见 [assets/report-template.md](assets/report-template.md) |
 
 P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指标会被误读成全量结论。
 
@@ -87,12 +90,21 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 | 设计对比实验、处理非确定性 | [references/evidence-matrix.md](references/evidence-matrix.md) |
 | 算指标、防虚高、做回归 | [references/metrics.md](references/metrics.md) |
 | 选最低成本对策 | [references/countermeasure-ladder.md](references/countermeasure-ladder.md) |
-| 落站点档案 | [references/site-profile.md](references/site-profile.md) |
+| 落站点档案、生成报告 | [references/site-profile.md](references/site-profile.md) |
+| 先装环境、知道用哪个工具、别踩版本坑 | [references/toolbox.md](references/toolbox.md) |
+| 做指纹分析（采集 / 自洽 / 差分 / 归因） | [references/fingerprint-methods.md](references/fingerprint-methods.md) |
 | 看真实案例的推理链 | [references/cases/](references/cases/) |
 
 ## 常用脚本
 
 ```bash
+# 0) 环境自检：缺什么、装什么
+scripts/preflight.sh
+
+# 0) 可行性快筛：一批 URL 各发 1 请求，先分出可行 / 需授权 / 疑似拦截 / 合规禁止
+scripts/quick-check.sh https://example.com/a https://example.com/b --selector "#content"
+scripts/quick-check.sh --from urls.txt --min-content 500
+
 # 客户端栈矩阵：同一 URL 跑多种客户端，输出状态码/大小/内容区字符数/耗时/最终 URL
 scripts/client-matrix.sh https://example.com/page --selector "#content" --passes 3 --save-html ./raw
 
@@ -104,6 +116,9 @@ scripts/client-matrix.sh --html ./raw/p1-curl-chrome.html --selector "#content"
 
 # 浏览器内指纹快照（含 CDP 泄漏探针），在页面上下文执行
 scripts/fingerprint-probe.js
+
+# 从档案 + 证据表生成报告（缺的字段写「未记录」，不编数字）
+scripts/report.py --profile sites/example.com/profile.yaml --out sites/example.com/report.md
 ```
 
 ## 红线

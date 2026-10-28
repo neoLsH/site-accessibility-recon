@@ -23,6 +23,13 @@ last_verified: 2026-10-28
 confidence: mechanism        # observed | mechanism | efficacy
 owner: ""
 sources: []                  # 参考链接或内部报告引用（不含密钥）
+conclusion: "边缘只认浏览器 TLS 栈；凭证层已通过"
+
+triage:                      # 三态分诊样本数，report.py 直接渲染
+  A: 0
+  B: 41
+  C: 12
+  noise: 3
 
 routes:
   - pattern: "^/article/"
@@ -47,11 +54,13 @@ gates:
   - name: "边缘 TLS 栈白名单"
     layer: L2
     dimension: client_stack
+    orthogonal: yes          # yes | no | unknown
     status: pass             # pass | fail | assumed
     evidence: "chrome-JA3+Safari-UA=放行 / node-undici=拦截"
   - name: "一次性滚动 cookie"
     layer: L5
     dimension: credential
+    orthogonal: yes
     status: pass
     evidence: "冻结重放第 2 发失效；写回链 6/6 成功"
 
@@ -59,17 +68,22 @@ metrics:
   baseline: null               # P0 阶段可留空；不要写一堆 0 冒充数据
   # baseline:
   #   date: 2026-09-01
+  #   accessibility_sample: 120
   #   accessibility_rate: 0.21
+  #   accessibility_range: "0.16-0.27"
+  #   completeness_sample: 25     # 分母 = 可访问成功的样本
   #   completeness_rate: 0.86
-  #   sample: 120
+  #   completeness_range: "0.80-0.91"
   #   pass_count: 3
   after: null
-  # after:
-  #   date: 2026-09-20
-  #   accessibility_rate: 0.83
-  #   completeness_rate: 0.91
-  #   sample: 89
-  #   pass_count: 3
+  # after: 同上结构
+  inflation_audit: "抽样 20 例，原始 88%，修正 71%"
+
+plan:
+  level: S3                  # S0..S7，见 countermeasure-ladder.md
+  reason: "同 UA 换 TLS 栈即可放行，不必换内核"
+  cost: "延迟 +0；出口无额外消耗"
+  blast_radius: "站点级"      # 站点级 | 全局
 
 known_issues:
   - "降级软拦截下，内容区残留广告卡时长度阈值会误判为完整"
@@ -86,8 +100,9 @@ non_goals:
 2. **每个 `status: pass/fail` 都要有 `evidence`。** 没有证据的写 `assumed`。
 3. **`last_verified` 必填。** 档案会过期，超过 30 天视为待复验。
 4. **`confidence` 反映最强结论的级别**，不要因为“机制确证”就升格为“效果验证”。
-5. **`metrics` 必须带 `sample` 与 `pass_count`；没有样本量时写 `null`，不要写 0。** 0 会被下游当成“测量过且为 0”。
+5. **两个指标分开记样本与区间。** `accessibility_*` 的分母是全部请求，`completeness_*` 的分母只算可访问成功的样本；共用一个 `sample` 会让两率互相污染。没有样本量时写 `null`，不要写 0。
 6. **`known_issues` 要写“未解”和“误判”，不只是成功经验。**
+7. **`plan.level` 用 S0–S7 对策等级**（见 [countermeasure-ladder.md](countermeasure-ladder.md)），写清代价与影响面，否则无法判断该不该落到全局。
 
 ## 与执行侧的契约
 
@@ -99,3 +114,18 @@ non_goals:
 - 读 `gates` 做回归：任何 `pass` 的门重新变 `fail`，即触发复验。
 
 站点级配置优先于全局默认；全局改动必须评估对全部档案的影响面。
+
+## 生成报告
+
+档案是源，报告是投影。不要手写报告，否则两份必然对不上：
+
+```bash
+python3 scripts/report.py --profile sites/example.com/profile.yaml \
+    --evidence sites/example.com/evidence.csv \
+    --out sites/example.com/report.md
+```
+
+- 只渲染档案里已有的结论，缺字段写「未记录」，不会编造数字。
+- 优先用 PyYAML；没装时用内置受限解析（覆盖上面全部语法），遇到块标量等不支持写法会直接报错并提示安装，而不是猜。
+- `evidence.csv` 缺省取档案同目录下的同名文件；表头用 `client,identity,route,egress,http,bytes,final_url,content_region_len,marker`。
+- 报告结构固定为 [assets/report-template.md](../assets/report-template.md) 的七节，便于跨站点横向对比。

@@ -6,6 +6,13 @@ host: example.com
 profile_version: 1
 last_verified: 2026-01-01      # 超过 30 天视为待复验
 confidence: observed           # observed | mechanism | efficacy
+conclusion: ""                 # 一句话结论，报告摘要直接引用
+
+triage:                        # 三态分诊的样本数，供 report.py 渲染；没分诊就写 null
+  A: null                      # 链路失败
+  B: null                      # 反爬拦截
+  C: null                      # 内容业务状态
+  noise: null                  # 基础设施噪声
 
 routes:
   - pattern: "^/path/"
@@ -28,13 +35,32 @@ gates:
   - name: ""
     layer: L2                  # L1..L7
     dimension: ""              # egress | client_stack | request_semantics | runtime | credential | account
+    orthogonal: unknown        # yes | no | unknown（和已验证通过的门是否独立）
     status: assumed            # pass | fail | assumed
     evidence: ""
 
 metrics:
   # 还没测就写 null，不要写 0（0 会被下游读成「测过且为 0」）
+  # 两个指标的分母不同，样本与区间分开记
   baseline: null
   after: null
+  inflation_audit: ""          # 抽样复核结果：原始口径 vs 修正口径
+
+# baseline / after 的完整形状：
+#   date: 2026-09-01
+#   accessibility_sample: 120
+#   accessibility_rate: 0.21
+#   accessibility_range: "0.16-0.27"     # 建议用半角连字符，避免编码问题
+#   completeness_sample: 25              # 分母 = 可访问成功的样本
+#   completeness_rate: 0.86
+#   completeness_range: "0.80-0.91"
+#   pass_count: 3
+
+plan:
+  level: ""                    # S0..S7，见 references/countermeasure-ladder.md
+  reason: ""
+  cost: ""
+  blast_radius: ""             # 站点级 | 全局
 
 known_issues: []
 non_goals: []

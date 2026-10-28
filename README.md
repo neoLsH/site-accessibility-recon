@@ -27,7 +27,7 @@ A diagnosable, layered playbook for web access failures — built for agents, po
 | 证据矩阵 | 客户端栈 × 身份 × 路由 的结果表，含对照组 |
 | 站点档案 | `sites/<host>/profile.yaml`，机器可读，可直接驱动执行侧 |
 | 双指标 | 可访问性成功率 / 内容完整率，分开统计（时间受限可后补，但须标注样本范围） |
-| 报告 | 复现步骤、根因、最低成本方案、回归方式（同上，可后补） |
+| 报告 | 复现步骤、根因、最低成本方案、回归方式（同上，可后补；用 `scripts/report.py` 从档案生成） |
 
 ## 核心模型
 
@@ -49,21 +49,28 @@ A diagnosable, layered playbook for web access failures — built for agents, po
 ## 快速开始（约 30 分钟）
 
 ```bash
+# 0. 环境自检：哪些工具在、缺什么、版本陷阱（LibreSSL 的 JA3 与 OpenSSL 不同）
+./scripts/preflight.sh
+
 # 1. 装上（换成你 Agent 实际读取的 skills 目录）
 ./adapters/install.sh .claude/skills
 
-# 2. 选 5–10 个 URL，按路由分组；用真实浏览器记录内容区长度作为基线
+# 2. 可行性快筛：一批 URL 各发 1 请求，先分掉合规禁止 / 不可达 / 需授权 / 疑似拦截
+./scripts/quick-check.sh --from urls.txt --selector '#content'
+
+# 3. 选 5–10 个 URL，按路由分组；用真实浏览器记录内容区长度作为基线
 #    注意：量正文容器，不要量整页
 
-# 3. 跑客户端栈矩阵（同 UA 换栈看是否翻转；同时量内容区，区分空壳与真正文）
+# 4. 跑客户端栈矩阵（同 UA 换栈看是否翻转；同时量内容区，区分空壳与真正文）
 ./scripts/client-matrix.sh 'https://example.com/article/1' --selector '#content' --passes 3
 
-# 4. 分诊：链路失败？反爬拦截？内容不存在？
+# 5. 分诊：链路失败？反爬拦截？内容不存在？
 #    见 references/triage-and-gates.md
 
-# 5. 自底向上隔离，画闸门图，落 sites/<host>/profile.yaml（模板见 assets/）
+# 6. 自底向上隔离，画闸门图，落 sites/<host>/profile.yaml（模板见 assets/）
 
-# 6. 成稿后跑自检，零失败再提交
+# 7. 从档案生成报告，再跑自检，零失败再提交
+./scripts/report.py --profile sites/example.com/profile.yaml
 python3 scripts/self-check.py
 ```
 
@@ -97,14 +104,19 @@ references/
   evidence-matrix.md          # 实验设计 + 非确定性
   metrics.md                  # 双指标 + 虚高审计
   countermeasure-ladder.md    # 对策阶梯 + 决策树
-  site-profile.md             # 站点档案 schema
+  site-profile.md             # 站点档案 schema + 报告生成
+  toolbox.md                  # 默认工具链、安装、版本陷阱
+  fingerprint-methods.md      # 指纹分析：采集 / 自洽 / 差分 / 归因
   cases/                      # 脱敏案例（推理链）
 assets/
   site-profile.template.yaml  # 站点档案模板
   report-template.md          # 报告模板
 scripts/
+  preflight.sh                # 环境自检（必需 / 可选工具与版本）
+  quick-check.sh              # 可行性快筛（robots 检查 + 1 请求 + 内容区）
   client-matrix.sh            # 客户端栈矩阵
   fingerprint-probe.js        # 指纹快照 + CDP 泄漏探针
+  report.py                   # 从 profile.yaml + evidence.csv 生成报告
   self-check.py               # 结构与脱敏校验（可用于 CI）
 adapters/
   README.md
@@ -119,7 +131,7 @@ LICENSE                       # MIT
 python3 scripts/self-check.py
 ```
 
-覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名）、脚本语法。退出码非 0 即不可发布。
+覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名）、全部脚本语法（`.sh` / `.js` / `.py`）。退出码非 0 即不可发布。
 
 ## 案例
 
@@ -158,7 +170,7 @@ python3 scripts/self-check.py
 
 ## 状态
 
-v1.0.0 — 方法论、参考集与脚本定稿；`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
+v1.1.0 — 新增默认工具链（`toolbox.md` + `preflight.sh`）、指纹分析手法（`fingerprint-methods.md` + 探针扩展）、可行性快筛（`quick-check.sh`）与报告生成（`report.py`）。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
 
 ## License
 

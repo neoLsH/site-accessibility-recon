@@ -21,10 +21,12 @@
 ## 工作流
 
 ```
-① 定口径  →  ② 三态分诊  →  ③ 自底向上逐层隔离（L1→L5）  →  ④ 对策 + A/B 回归
+⓪ 可行性快筛  →  ① 定口径  →  ② 三态分诊  →  ③ 自底向上逐层隔离（L1→L5）  →  ④ 对策 + A/B 回归
 
 （对策等级另用 S0–S7 编号，见 references/countermeasure-ladder.md。）
 ```
+
+⓪ 只回答“这条路值不值得走”，一发请求即可；它不是结论，跳过它容易在死路上烧预算。
 
 分层顺序：链路 → 传输（TLS/H2）→ 请求语义（Header/路由）→ 运行时（headless/CDP/指纹）→ 业务（token/登录/权限）→ 服务端决策模型 → 观测。
 
@@ -36,14 +38,19 @@
 - 实验设计与非确定性：[references/evidence-matrix.md](references/evidence-matrix.md)
 - 双指标与防虚高：[references/metrics.md](references/metrics.md)
 - 对策阶梯与决策树：[references/countermeasure-ladder.md](references/countermeasure-ladder.md)
-- 站点档案 schema：[references/site-profile.md](references/site-profile.md)
+- 站点档案 schema 与报告生成：[references/site-profile.md](references/site-profile.md)
+- 默认工具链与版本坑：[references/toolbox.md](references/toolbox.md)
+- 指纹分析手法：[references/fingerprint-methods.md](references/fingerprint-methods.md)
 - 案例：[references/cases/](references/cases/)
 
 ## 脚本
 
 ```bash
+scripts/preflight.sh                                             # 环境自检
+scripts/quick-check.sh --from urls.txt --selector '#content'     # 可行性快筛（含 robots 检查）
 scripts/client-matrix.sh <url> --selector '#content' --passes 3   # 客户端栈矩阵 + 内容区长度
 scripts/fingerprint-probe.js                                     # 页面内指纹快照 + CDP 泄漏探针
+scripts/report.py --profile sites/<host>/profile.yaml            # 从档案生成报告
 ```
 
 ## 边界

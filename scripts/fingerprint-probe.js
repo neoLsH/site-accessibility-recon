@@ -13,6 +13,9 @@
  * 说明：
  *   - 输出用于 diff，不追求“分数”。检测站点只能验证已知向量，不能代表目标站。
  *   - 自洽是必要条件，不是充分条件；能否通过目标站必须回到目标站做活体对照。
+ *   - 连续跑两次：canvas / audio 哈希应稳定。同一环境两次不同，通常是噪声补丁过度。
+ *   - WebRTC 只统计候选类型，不记录地址本身，避免把内网 IP 写进报告。
+ *   - 手法与判据见 references/fingerprint-methods.md。
  */
 
 async function fingerprintProbe() {
@@ -108,6 +111,98 @@ async function fingerprintProbe() {
     }
   })();
 
+  // --- 字体 / 音频 / WebRTC ---------------------------------------------
+  // 字体用「宽度差分」：同一段文字在 <family>,monospace 与 monospace 下宽度不同，
+  // 说明该字体真实存在且被渲染器采用。
+  out.fonts = (() => {
+    try {
+      const probe = 'mmmmmmmmmmlliWWW0123456789';
+      const c = document.createElement('canvas');
+      const ctx = c.getContext('2d');
+      const width = (family) => {
+        ctx.font = `40px ${family}, monospace`;
+        return ctx.measureText(probe).width;
+      };
+      const base = width('monospace');
+      const candidates = [
+        'Arial', 'Helvetica', 'Times New Roman', 'Courier New', 'Verdana',
+        'Georgia', 'Tahoma', 'Trebuchet MS', 'Impact', 'Comic Sans MS',
+        'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB',
+        'Noto Sans CJK SC', 'Source Han Sans SC', 'WenQuanYi Micro Hei',
+        'DejaVu Sans', 'Liberation Sans', 'Roboto', 'Ubuntu',
+      ];
+      const found = candidates.filter((f) => width(`"${f}"`) !== base);
+      return { total: found.length, names: found, baseWidth: base };
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  out.audioHash = await (async () => {
+    try {
+      const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      if (!Ctx) return null;
+      const ctx = new Ctx(1, 44100, 44100);
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = 10000;
+      const comp = ctx.createDynamicsCompressor();
+      osc.connect(comp);
+      comp.connect(ctx.destination);
+      osc.start(0);
+      const buf = await ctx.startRendering();
+      const data = buf.getChannelData(0);
+      let sum = 0;
+      for (let i = 4500; i < 5000; i++) sum += Math.abs(data[i]);
+      return sum.toFixed(7);
+    } catch (e) {
+      return null;
+    }
+  })();
+
+  // 只统计候选类型，不记录地址本身，避免把内网 IP 写进报告
+  out.webrtc = await (async () => {
+    const PC = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+    if (!PC) return { supported: false };
+    return new Promise((resolve) => {
+      const stats = { supported: true, total: 0, host: 0, mdns: 0, srflx: 0 };
+      let pc;
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        try { pc && pc.close(); } catch { /* ignore */ }
+        resolve(stats);
+      };
+      const timer = setTimeout(finish, 1500);
+      try {
+        pc = new PC({ iceServers: [] });
+        pc.createDataChannel('probe');
+        pc.onicecandidate = (e) => {
+          if (!e.candidate) {
+            clearTimeout(timer);
+            return finish();
+          }
+          const c = e.candidate.candidate || '';
+          stats.total += 1;
+          if (/ typ host/.test(c)) stats.host += 1;
+          if (/\.local/.test(c)) stats.mdns += 1;
+          if (/ typ srflx/.test(c)) stats.srflx += 1;
+        };
+        pc.createOffer()
+          .then((o) => pc.setLocalDescription(o))
+          .catch(() => { clearTimeout(timer); finish(); });
+      } catch {
+        clearTimeout(timer);
+        resolve({ supported: false });
+      }
+    });
+  })();
+
+  out.colorDepth = typeof screen !== 'undefined' ? screen.colorDepth : null;
+  out.pixelDepth = typeof screen !== 'undefined' ? screen.pixelDepth : null;
+  out.pluginNames = nav.plugins ? Array.from(nav.plugins).map((p) => p.name).slice(0, 10) : null;
+
   // --- CDP 泄漏探针 -----------------------------------------------------
   // 页面可以通过在 Error.stack 上埋 getter 探测客户端是否启用了 Runtime 域：
   // 启用后，console 事件生成参数预览时会被迫访问该 getter。
@@ -178,6 +273,30 @@ async function fingerprintProbe() {
   if (out.cdp.proxyTrapped) warnings.push('CDP 泄漏：Proxy ownKeys 被访问');
   if (/@posix/.test(out.language || '')) warnings.push('navigator.language 含 @posix（Linux 容器 locale 特征）');
   if (out.maxTouchPoints === 0 && /Android|iPhone/.test(ua)) warnings.push('移动 UA 但 maxTouchPoints 为 0');
+
+  const uaMain = String(out.language || '').split('-')[0];
+  const locMain = String(out.locale || '').split('-')[0];
+  if (uaMain && locMain && uaMain !== locMain) {
+    warnings.push(`Intl locale(${out.locale})与 navigator.language(${out.language}) 主语言不一致`);
+  }
+
+  const uaVer = (ua.match(/Chrome\/(\d+)/) || [])[1];
+  const brand = ((out.uaData && out.uaData.brands) || []).find((b) =>
+    /Google Chrome|Chromium/.test(b.brand)
+  );
+  if (uaVer && brand && brand.version && brand.version !== uaVer) {
+    warnings.push(`UA 版本(${uaVer})与 Client Hints 版本(${brand.version})不一致`);
+  }
+
+  if (typeof out.colorDepth === 'number' && out.colorDepth < 24) {
+    warnings.push(`screen.colorDepth=${out.colorDepth}（低于 24，常见于虚拟显示）`);
+  }
+  if (out.fonts && out.fonts.total === 0) {
+    warnings.push('未探测到任何常见字体（字体枚举被削弱或环境异常）');
+  }
+  if (out.webrtc && out.webrtc.supported && out.webrtc.host > 0 && out.webrtc.mdns === 0) {
+    warnings.push('WebRTC host 候选未使用 mDNS，可能暴露内网地址');
+  }
 
   out.coherenceWarnings = warnings;
   return out;

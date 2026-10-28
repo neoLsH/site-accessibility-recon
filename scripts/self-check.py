@@ -8,7 +8,7 @@
   4. 未决占位符（TODO / TBD / FIXME）
   5. Markdown 相对链接可解析
   6. 脱敏红线（站点名 / 厂商名 / 内部产品名 / 非标准状态码 / Cookie 名）
-  7. 脚本语法（bash -n / node --check，存在时）
+  7. 脚本语法（scripts/ 下全部 .sh / .js / .py）
 
 退出码：0 通过，1 有问题。
 """
@@ -33,10 +33,15 @@ REQUIRED = [
     "references/metrics.md",
     "references/countermeasure-ladder.md",
     "references/site-profile.md",
+    "references/toolbox.md",
+    "references/fingerprint-methods.md",
     "assets/site-profile.template.yaml",
     "assets/report-template.md",
+    "scripts/preflight.sh",
+    "scripts/quick-check.sh",
     "scripts/client-matrix.sh",
     "scripts/fingerprint-probe.js",
+    "scripts/report.py",
     "scripts/self-check.py",
 ]
 
@@ -73,6 +78,14 @@ def markdown_files():
             if f.endswith(".md"):
                 out.append(os.path.relpath(os.path.join(base, f), ROOT))
     return sorted(out)
+
+
+def script_files():
+    out = []
+    for f in sorted(os.listdir(os.path.join(ROOT, "scripts"))):
+        if f.endswith((".sh", ".js", ".py")):
+            out.append(os.path.join("scripts", f))
+    return out
 
 
 def check_structure():
@@ -193,11 +206,9 @@ def check_links():
 
 def check_forbidden():
     bad = 0
-    targets = markdown_files() + [
-        "scripts/client-matrix.sh",
-        "scripts/fingerprint-probe.js",
-        "assets/site-profile.template.yaml",
-    ]
+    # 本文件的 FORBIDDEN 列表必然含这些词，跳过自身
+    targets = [p for p in markdown_files() + script_files() + ["assets/site-profile.template.yaml"]
+               if p != "scripts/self-check.py"]
     for p in targets:
         if not os.path.exists(os.path.join(ROOT, p)):
             continue
@@ -212,20 +223,34 @@ def check_forbidden():
 
 
 def check_scripts():
-    sh = os.path.join(ROOT, "scripts/client-matrix.sh")
-    if shutil.which("bash"):
-        r = subprocess.run(["bash", "-n", sh], capture_output=True, text=True)
-        if r.returncode == 0:
-            ok("client-matrix.sh 语法通过")
+    for p in script_files():
+        path = os.path.join(ROOT, p)
+        if p.endswith(".sh"):
+            if not shutil.which("bash"):
+                continue
+            r = subprocess.run(["bash", "-n", path], capture_output=True, text=True)
+            if r.returncode != 0:
+                fail(f"{p} 语法错误: {r.stderr.strip()}")
+                continue
+            if not os.access(path, os.X_OK):
+                fail(f"{p} 没有可执行权限（chmod +x）")
+                continue
+        elif p.endswith(".js"):
+            if not shutil.which("node"):
+                continue
+            r = subprocess.run(["node", "--check", path], capture_output=True, text=True)
+            if r.returncode != 0:
+                fail(f"{p} 语法错误: {r.stderr.strip()}")
+                continue
         else:
-            fail(f"client-matrix.sh 语法错误: {r.stderr.strip()}")
-    js = os.path.join(ROOT, "scripts/fingerprint-probe.js")
-    if shutil.which("node"):
-        r = subprocess.run(["node", "--check", js], capture_output=True, text=True)
-        if r.returncode == 0:
-            ok("fingerprint-probe.js 语法通过")
-        else:
-            fail(f"fingerprint-probe.js 语法错误: {r.stderr.strip()}")
+            if not shutil.which("python3"):
+                continue
+            r = subprocess.run([sys.executable, "-m", "py_compile", path],
+                               capture_output=True, text=True)
+            if r.returncode != 0:
+                fail(f"{p} 语法错误: {r.stderr.strip()}")
+                continue
+        ok(f"{p} 语法通过")
 
 
 def main():
