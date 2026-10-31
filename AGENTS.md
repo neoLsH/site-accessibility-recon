@@ -31,15 +31,19 @@
 
 分层顺序：链路 → 传输（TLS/H2）→ 请求语义（Header/路由）→ 运行时（headless/CDP/指纹）→ 业务（token/登录/权限）→ 服务端决策模型 → 观测。
 
+形态与概率门是分诊的前置：`recon shape` 先认页面形态（静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空态），`recon canary` 再用同栈多 pass 判断是否概率门。单发请求推不出翻转率。
+
 ## 按需读取
 
 - 三态判据与闸门图：[references/triage-and-gates.md](references/triage-and-gates.md)
+- 页面形态（静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空态）与最小探测路径：[references/site-shapes.md](references/site-shapes.md)
 - 判定面（客户端采集 vs 服务端评分）与五个判定实验：[references/detection-surface.md](references/detection-surface.md)
 - 分层判据与探针：[references/layers.md](references/layers.md)
 - 每层还有哪些信号没查：[references/vectors.md](references/vectors.md)
 - 实验设计与非确定性：[references/evidence-matrix.md](references/evidence-matrix.md)
 - 双指标与防虚高：[references/metrics.md](references/metrics.md)
 - 对策阶梯与决策树：[references/countermeasure-ladder.md](references/countermeasure-ladder.md)
+- 从档案到执行：lint 分级、层→级、五步、失败回流：[references/execution.md](references/execution.md)
 - 站点档案 schema 与报告生成：[references/site-profile.md](references/site-profile.md)
 - 默认工具链与版本坑：[references/toolbox.md](references/toolbox.md)
 - 遇到 WAF 的六类机制与合规路径：[references/waf-classes.md](references/waf-classes.md)
@@ -53,11 +57,14 @@
 scripts/recon.py <命令> <参数>          # 统一入口，参数透传；加 --json 输出单个 JSON 对象
 scripts/recon.py doctor                                         # 环境自检
 scripts/recon.py quick --from urls.txt --selector '#content'    # 可行性快筛（含 robots 检查）
+scripts/recon.py shape <url>                                    # 单响应形态分类（可 --html 离线）
 scripts/recon.py matrix <url> --selector '#content' --passes 3   # 客户端栈矩阵 + 内容区长度
+scripts/recon.py canary <url> --selector '#content' --passes 5   # 概率门：翻转率与内容区间
 scripts/fingerprint-probe.js                                    # 页面内指纹快照 + CDP 泄漏探针
 scripts/recon.py fp diff a.json b.json                          # 网络指纹快照 + 逐字段 diff
 scripts/recon.py fetch <url> --selector '#content'               # 客户端阶梯取内容 + WAF 归类
 scripts/recon.py surface <url>                                  # 站点 JS 采集面：采了什么、往哪上报
+scripts/recon.py plan recon/<代号>/profile.yaml                  # 档案 lint + 执行计划
 scripts/recon.py report recon/<代号>/profile.yaml                # 从档案生成报告
 ```
 

@@ -198,6 +198,8 @@ def load_profile(path):
 def cell(value):
     if value is None or value == '':
         return '未记录'
+    if isinstance(value, bool):
+        return 'yes' if value else 'no'  # YAML 会把未加引号的 yes/no 读成布尔
     return str(value).replace('|', '\\|').replace('\n', ' ')
 
 

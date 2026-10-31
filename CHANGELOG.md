@@ -4,6 +4,30 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.7.0] — 2026-10-31
+
+把探索与执行两侧补成闭环。
+
+### 新增
+
+- `references/site-shapes.md`：八种页面形态（静态直出 / CSR 空壳 / 挑战页 / 登录墙 / 业务空态 / API 响应 / 网关错误 / 降级 200），每种给识别信号、常见误判、最小探测路径与三态对应。
+- `scripts/shape.py`（`recon shape`）：单响应形态分类，1 请求或 `--html` 离线；输出关键信号与下一步，置信度固定 heuristic。
+- `scripts/canary.py`（`recon canary`）：同栈多 pass，报翻转率与内容 min/median/max；硬上限 10 pass、默认间隔 3s（最低 2s），基础设施噪声单独计数。
+- `references/execution.md`：从档案到执行——lint 分级、层→S 级映射、五步执行、失败回流表、降级链与停手条件、执行红线。
+- `scripts/plan.py`（`recon plan`）：档案 lint（证据绑定、`null`/`0`、疑似 Cookie 名/值与站点常量、过期）并按最早失败门推导执行计划与停止条件；`plan.level` 与推导不一致只告警。
+
+### 变更
+
+- `scripts/recon.py` 增加 `shape` / `canary` / `plan` 三个子命令，`--json` 契约不变（`ok` 仍只取自退出码）；`plan` 支持位置参数档案。
+- `SKILL.md` 流程与按需加载接入新能力，行数降到 143。
+- `scripts/self-check.py` 增加「执行计划冒烟（模板 lint 无 ERROR）」与「canary 节流护栏」两项；必备清单同步扩容。
+- README 快速开始、CLI 表、目录结构与 JSON 契约同步；AGENTS.md 同步命令与参考页。
+
+### 已知限制
+
+- `shape` 是启发式：挑战页 / 登录墙的文案判定会有假阳性，必须用真实浏览器基线复核。
+- `canary` 只判断同一栈的稳定性，不跨栈；跨栈差异仍用 `matrix`。
+
 ## [1.6.0] — 2026-10-29
 
 对齐 Agent Skills 生态的六件事，内容口径不变。

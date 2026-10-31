@@ -8,20 +8,24 @@
 用法:
     recon doctor                                    # 环境自检
     recon quick https://a https://b --selector '#content'
+    recon shape <url>                               # 单响应页面形态分类
     recon matrix <url> --selector '#content' --passes 3
+    recon canary <url> --selector '#content' --passes 5
     recon fetch <url> --selector '#content'
     recon surface <url>                             # 站点 JS 采集面（静态）
     recon fp collect --via cffi --out chrome.json
     recon fp diff baseline.json chrome.json
+    recon plan recon/forum/profile.yaml             # 档案 lint + 执行计划
     recon report recon/forum/profile.yaml --out recon/forum/report.md
     recon check
 
     recon quick --from urls.txt --json              # 任一子命令都可加 --json
 
 子命令与脚本的对应：
-    doctor → preflight.sh    quick → quick-check.sh    matrix → client-matrix.sh
-    fetch  → fetch-page.py   fp    → fp-echo.py        report → report.py
-    surface → js-surface.py  check → self-check.py
+    doctor → preflight.sh    quick → quick-check.sh    shape → shape.py
+    matrix → client-matrix.sh canary → canary.py       fetch → fetch-page.py
+    surface → js-surface.py  fp    → fp-echo.py        plan  → plan.py
+    report → report.py       check → self-check.py
 """
 
 import json
@@ -36,10 +40,13 @@ ROOT = os.path.dirname(HERE)
 TOOLS = {
     "doctor": ("bash", "preflight.sh", "环境自检：缺什么、缺了会降级成什么"),
     "quick": ("bash", "quick-check.sh", "可行性快筛：每 URL 1 请求 + robots，先分掉死路"),
+    "shape": ("python", "shape.py", "单响应形态分类：静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空"),
     "matrix": ("bash", "client-matrix.sh", "客户端栈矩阵：同 URL 跑多种客户端，量内容区"),
+    "canary": ("python", "canary.py", "概率门定性：同栈多 pass，报翻转率与内容区间"),
     "fetch": ("python", "fetch-page.py", "客户端阶梯取内容，失败时给 WAF 机制归类"),
     "surface": ("python", "js-surface.py", "站点 JS 采集面：静态扫六类指纹采集与上报通道"),
     "fp": ("python", "fp-echo.py", "网络栈指纹：采集快照 / 逐字段比对"),
+    "plan": ("python", "plan.py", "档案 lint + 执行计划：最早失败门 → S 级与验证步骤"),
     "report": ("python", "report.py", "从站点档案生成报告"),
     "check": ("python", "self-check.py", "仓库自检：结构、脱敏、脚本语法"),
 }
@@ -132,9 +139,11 @@ def to_json(command, rc, out, err):
                 body["snapshot"] = json.loads(out)
             except ValueError:
                 body["ok"] = False
-    elif command == "surface":
+    elif command in ("surface", "shape", "canary", "plan"):
         try:
-            body.update(json.loads(out))
+            data = json.loads(out)
+            data.pop("ok", None)  # 契约：ok 只取自退出码
+            body.update(data)
         except ValueError:
             body["ok"] = False
     elif command == "report":
@@ -174,11 +183,11 @@ def main(argv):
             rest = ["--diff"] + rest
             if as_json:
                 rest.append("--json")
-    elif cmd in ("fetch", "surface") and as_json:
+    elif cmd in ("fetch", "surface", "shape", "canary", "plan") and as_json:
         rest.append("--json")
 
-    # report 的档案既是位置参数也是 --profile；本 CLI 允许 recon report <档案>
-    if cmd == "report" and rest and not rest[0].startswith("-") and "--profile" not in rest:
+    # report / plan 的档案既是位置参数也是 --profile；允许 recon plan <档案>
+    if cmd in ("report", "plan") and rest and not rest[0].startswith("-") and "--profile" not in rest:
         rest = ["--profile", rest[0]] + rest[1:]
 
     interp, script, _ = TOOLS[cmd]

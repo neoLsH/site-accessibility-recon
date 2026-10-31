@@ -109,11 +109,17 @@ cp -R ./assets/workspace/. ./recon/
 # 2. 可行性快筛：一批 URL 各发 1 请求，先分掉合规禁止 / 不可达 / 需授权 / 疑似拦截
 ./scripts/recon.py quick --from urls.txt --selector '#content'
 
+# 2.5 认页面形态（1 请求）：静态 / CSR 空壳 / 挑战页 / 登录墙 / 业务空态
+./scripts/recon.py shape 'https://example.com/article/1'
+
 # 3. 选 5–10 个 URL，按路由分组；用真实浏览器记录内容区长度作为基线
 #    注意：量正文容器，不要量整页
 
 # 4. 跑客户端栈矩阵（同 UA 换栈看是否翻转；同时量内容区，区分空壳与真正文）
 ./scripts/recon.py matrix 'https://example.com/article/1' --selector '#content' --passes 3
+
+# 4.5 概率门定性：同栈多 pass，翻转率 >0 就按区间报，别报单点
+./scripts/recon.py canary 'https://example.com/article/1' --selector '#content' --passes 5
 
 # 5. 分诊：链路失败？反爬拦截？内容不存在？
 #    见 references/triage-and-gates.md；判进反爬拦截后按 references/waf-classes.md 归类
@@ -131,7 +137,8 @@ cp -R ./assets/workspace/. ./recon/
 
 # 6. 自底向上隔离，画闸门图，落 recon/<代号>/profile.yaml（模板见 assets/）
 
-# 7. 从档案生成报告，再跑自检，零失败再提交
+# 7. 档案 lint + 执行计划：卡哪扇门、下一步做哪一级、怎么验证；再生成报告与自检
+./scripts/recon.py plan recon/forum/profile.yaml
 ./scripts/recon.py report recon/forum/profile.yaml --out recon/forum/report.md
 ./scripts/recon.py check
 ```
@@ -146,7 +153,7 @@ await fingerprintProbe()
 
 ## CLI 入口
 
-七个脚本收敛成一个入口，参数原样透传给底层脚本：
+所有脚本收敛成一个入口，参数原样透传给底层脚本：
 
 ```
 recon <命令> [参数...] [--json]
@@ -156,10 +163,13 @@ recon <命令> [参数...] [--json]
 |---|---|---|
 | `doctor` | `preflight.sh` | 环境自检：缺什么、缺了会降级成什么 |
 | `quick` | `quick-check.sh` | 可行性快筛：每 URL 1 请求 + robots |
+| `shape` | `shape.py` | 单响应形态分类：静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空态 |
 | `matrix` | `client-matrix.sh` | 客户端栈矩阵 + 内容区长度 |
+| `canary` | `canary.py` | 概率门定性：同栈多 pass，翻转率与内容区间 |
 | `fetch` | `fetch-page.py` | 客户端阶梯取内容 + WAF 归类 |
 | `surface` | `js-surface.py` | 站点 JS 采集面：静态扫六类采集与上报通道 |
 | `fp` | `fp-echo.py` | `fp collect` 采集快照 / `fp diff A B` 比对 |
+| `plan` | `plan.py` | 档案 lint + 执行计划：最早失败门 → S 级与验证步骤 |
 | `report` | `report.py` | `recon report <档案>` 生成报告 |
 | `check` | `self-check.py` | 仓库自检 |
 
@@ -172,7 +182,7 @@ recon <命令> [参数...] [--json]
            "reason": "内容区 156 低于下限 200，且无 CSR 迹象"}]}
 ```
 
-`fp` → `{"command":"fp","diff":{"total":3,"differ":2,"fields":[...]}}`，`fetch` → `records`，`surface` → `categories` / `suggest`，`check` → `failures`，`report` → `out` / `report`。`ok` 直接取自退出码，所以「有 URL 不可行」「两份指纹有差异」都是 `false`。
+`fp` → `{"command":"fp","diff":{"total":3,"differ":2,"fields":[...]}}`，`fetch` → `records`，`surface` → `categories` / `suggest`，`shape` → `shape` / `signals` / `next`，`canary` → `verdict` / `flip_rate` / `content`，`plan` → `lint` / `blocking` / `steps`，`check` → `failures`，`report` → `out` / `report`。`ok` 直接取自退出码，所以「有 URL 不可行」「两份指纹有差异」「这次抓取翻转了」都是 `false`。
 
 想当全局命令用：
 
@@ -226,6 +236,8 @@ references/
   detection-surface.md        # 判定面：客户端采集 vs 服务端评分 + 五个判定实验
   anti-patterns.md            # 反模式黑名单（10 条，含替代做法）
   review-scorecard.md         # 诊断质量评分卡（独立 reviewer 盲评）
+  site-shapes.md              # 八种页面形态：识别信号、误判与最小探测路径
+  execution.md                # 从档案到执行：lint 分级、层→级、五步、失败回流
   cases/                      # 脱敏案例（推理链）
 assets/
   site-profile.template.yaml  # 站点档案模板
@@ -235,14 +247,17 @@ assets/
     README.md                 # 工作区约定：命名、规矩、重来一次
     raw/.gitkeep              # 原始响应体目录
 scripts/
-  recon.py                    # 统一入口：doctor / quick / matrix / fetch / surface / fp / report / check
+  recon.py                    # 统一入口：doctor / quick / shape / matrix / canary / fetch / surface / fp / plan / report / check
   preflight.sh                # 环境自检（必需 / 可选工具与版本）
   quick-check.sh              # 可行性快筛（robots 检查 + 1 请求 + 内容区）
+  shape.py                    # 单响应形态分类（启发式，可 --html 离线）
   client-matrix.sh            # 客户端栈矩阵
+  canary.py                   # 概率门：同栈多 pass 的翻转率与内容区间
   fingerprint-probe.js        # 指纹快照 + CDP 泄漏探针
   fp-echo.py                  # 网络栈指纹快照 + 逐字段 diff
   fetch-page.py               # 客户端阶梯取内容 + WAF 归类
   js-surface.py               # 站点 JS 采集面静态扫描
+  plan.py                     # 档案 lint + 执行计划推导
   report.py                   # 从 profile.yaml + evidence.csv 生成报告
   self-check.py               # 结构与脱敏校验（可用于 CI）
 adapters/
@@ -261,7 +276,7 @@ LICENSE                       # MIT
 python3 scripts/self-check.py
 ```
 
-覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识）、全部脚本语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行、**案例结构**（章节齐全、编号规范、置信度已标）、**版本记录**（`CHANGELOG.md` 含当前版本）。退出码非 0 即不可发布。
+覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识）、全部脚本语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行、**案例结构**（章节齐全、编号规范、置信度已标）、**版本记录**（`CHANGELOG.md` 含当前版本）、**执行计划可运行**（模板 lint 无 ERROR）、**节流护栏**（`canary` 的 pass 上限与默认间隔）。退出码非 0 即不可发布。
 
 自检只管仓库合不合规，不管某次诊断站不站得住——后者用 [诊断质量评分卡](references/review-scorecard.md)，由独立 reviewer agent 盲评。
 
@@ -288,6 +303,7 @@ python3 scripts/self-check.py
 7. **归类不绕过。** WAF 按机制归类是为了选对合规路径，不是提供绕过手法。
 8. **记录留在本地。** 工作区放项目根，骨架进仓库、内容不进；要外发就另存脱敏版。
 9. **先定判定面再动手。** 边缘、前端采集、服务端评分三者的修复杠杆互斥；采集不等于判定，只有 ablation 能证明因果。
+10. **执行从档案推导。** 计划不手写：`plan` 先 lint 档案，再按最早失败的门给出动作与判据；跳过 lint 的计划会把错误结论放大成线上改动。
 
 ## 边界
 
@@ -310,7 +326,7 @@ python3 scripts/self-check.py
 
 ## 状态
 
-v1.6.0 — 对齐 Agent Skills 生态的六件事：`SKILL.md` frontmatter 补 `license` / `compatibility` / `allowed-tools`（运行时依赖从 `preflight.sh` 提到激活时可见）；新增 [反模式黑名单](references/anti-patterns.md)（10 条，含替代做法）与 [诊断质量评分卡](references/review-scorecard.md)（五维 100 分，独立 reviewer 盲评，产出 `recon/<代号>/REVIEW.md`）；[evidence-matrix.md](references/evidence-matrix.md) 补子 agent 编排（一个实验一个子 agent、只回报结构化行、缺对照整批作废）；新增 [CONTRIBUTING.md](CONTRIBUTING.md)、PR / issue 模板、`CHANGELOG.md`；自检增加案例结构与版本记录校验。此前各版本见 [CHANGELOG.md](CHANGELOG.md)。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
+v1.7.0 — 把探索与执行两侧补成闭环：`recon shape`（[site-shapes.md](references/site-shapes.md)）先认八种页面形态，避免用错判据；`recon canary`（[canary.py](scripts/canary.py)）用同栈多 pass 的翻转率区分确定性闸门与概率门，硬上限 10 pass、间隔不低于 2s；`recon plan`（[plan.py](scripts/plan.py) + [execution.md](references/execution.md)）先 lint 档案（证据绑定、`null`/`0`、疑似站点常量、过期），再按最早失败的门推导 S 级、五步动作与停止条件。自检新增执行计划冒烟与节流护栏两项。v1.6.0 — 对齐 Agent Skills 生态的六件事：`SKILL.md` frontmatter 补 `license` / `compatibility` / `allowed-tools`（运行时依赖从 `preflight.sh` 提到激活时可见）；新增 [反模式黑名单](references/anti-patterns.md)（10 条，含替代做法）与 [诊断质量评分卡](references/review-scorecard.md)（五维 100 分，独立 reviewer 盲评，产出 `recon/<代号>/REVIEW.md`）；[evidence-matrix.md](references/evidence-matrix.md) 补子 agent 编排（一个实验一个子 agent、只回报结构化行、缺对照整批作废）；新增 [CONTRIBUTING.md](CONTRIBUTING.md)、PR / issue 模板、`CHANGELOG.md`；自检增加案例结构与版本记录校验。此前各版本见 [CHANGELOG.md](CHANGELOG.md)。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
 
 ## License
 

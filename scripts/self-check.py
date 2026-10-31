@@ -14,10 +14,13 @@
  10. recon 入口可运行（--version 自检）
  11. 案例结构：references/cases/ 每篇含现象 / 可迁移规律 / 置信度
  12. 版本记录：CHANGELOG.md 含当前版本条目
+ 13. 执行计划可运行，且档案模板 lint 无 ERROR
+ 14. 概率门脚本的节流护栏（pass 上限与默认间隔）
 
 退出码：0 通过，1 有问题。
 """
 
+import json
 import os
 import re
 import shutil
@@ -46,6 +49,8 @@ REQUIRED = [
     "references/detection-surface.md",
     "references/anti-patterns.md",
     "references/review-scorecard.md",
+    "references/execution.md",
+    "references/site-shapes.md",
     "assets/site-profile.template.yaml",
     "assets/report-template.md",
     "assets/workspace/.gitignore",
@@ -58,6 +63,9 @@ REQUIRED = [
     "scripts/fp-echo.py",
     "scripts/fetch-page.py",
     "scripts/js-surface.py",
+    "scripts/shape.py",
+    "scripts/canary.py",
+    "scripts/plan.py",
     "scripts/recon.py",
     "scripts/report.py",
     "scripts/self-check.py",
@@ -420,6 +428,41 @@ def check_cli():
         fail(f"recon 入口异常: {(r.stderr or r.stdout).strip()[:200]}")
 
 
+def check_plan_smoke():
+    """档案模板是 lint 的基线：它可以有提示，但不能有 ERROR。"""
+    r = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "plan",
+         os.path.join(ROOT, "assets/site-profile.template.yaml"), "--json"],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        fail(f"plan 入口异常: {(r.stderr or r.stdout).strip()[:200]}")
+        return
+    try:
+        body = json.loads(r.stdout)
+    except ValueError:
+        fail("plan --json 不是合法 JSON")
+        return
+    lint = body.get("lint") or {}
+    errors = lint.get("errors") or []
+    if errors:
+        fail(f"plan 对模板报告 {len(errors)} 个 ERROR: {errors[0].get('path')}")
+    else:
+        ok(f"plan 可运行，模板 lint 无 ERROR（{len(lint.get('warnings') or [])} 条提示）")
+
+
+def check_canary_guard():
+    """节流是红线：pass 上限与默认间隔必须写在脚本里，不靠口头约定。"""
+    body = read("scripts/canary.py")
+    cap = re.search(r"MAX_PASSES\s*=\s*(\d+)", body)
+    delay = re.search(r"^DELAY\s*=\s*(\d+(?:\.\d+)?)", body, re.M)
+    if not cap or int(cap.group(1)) > 10:
+        fail("canary 未限制最大 pass 数（应 <=10）")
+    elif not delay or float(delay.group(1)) < 2:
+        fail("canary 默认间隔过小（应 >=2s）")
+    else:
+        ok(f"canary 节流护栏：passes<={cap.group(1)}，delay>={delay.group(1)}s")
+
+
 def main():
     check_structure()
     check_workspace_ignore()
@@ -434,6 +477,8 @@ def main():
     check_forbidden()
     check_scripts()
     check_cli()
+    check_plan_smoke()
+    check_canary_guard()
 
     print("== 通过 ==")
     for m in oks:
