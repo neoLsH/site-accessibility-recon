@@ -84,6 +84,7 @@ REQUIRED = [
     "assets/workspace/README.md",
     "assets/workspace/raw/.gitkeep",
     "scripts/preflight.sh",
+    "scripts/quick.py",
     "scripts/quick-check.sh",
     "scripts/client-matrix.sh",
     "scripts/fingerprint-probe.js",
@@ -127,6 +128,9 @@ REQUIRED = [
     "tests/test_arms.py",
     "tests/test_render.py",
     "tests/test_session.py",
+    "tests/test_context.py",
+    "tests/test_policy_context.py",
+    "tests/test_quick.py",
 ]
 
 # 脱敏红线：命中即失败。这里只放公开可提的站点 / 厂商。

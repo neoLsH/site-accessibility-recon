@@ -46,7 +46,7 @@ ROOT = os.path.dirname(HERE)
 
 TOOLS = {
     "doctor": ("bash", "preflight.sh", "环境自检：缺什么、缺了会降级成什么"),
-    "quick": ("bash", "quick-check.sh", "可行性快筛：每 URL 1 请求 + robots，先分掉死路"),
+    "quick": ("python", "quick.py", "可行性快筛：每 URL 1 请求 + robots，先分掉死路"),
     "shape": ("python", "shape.py", "单响应形态分类：静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空"),
     "matrix": ("bash", "client-matrix.sh", "客户端栈矩阵：同 URL 跑多种客户端，量内容区"),
     "canary": ("python", "canary.py", "概率门定性：同栈多 pass，报翻转率与内容区间"),
