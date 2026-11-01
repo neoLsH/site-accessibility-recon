@@ -88,10 +88,14 @@ class ArmSession:
 
         candidates, skipped = self.registry.filter([a.name for a in self.arms],
                                                    require)
-        for name, reason in skipped:
-            page["tries"].append({"arm": name, "skipped": True,
-                                  "outcome": "noise", "reason": reason})
+
+        def flush_skipped():
+            for name, reason in skipped:
+                page["tries"].append({"arm": name, "skipped": True,
+                                      "outcome": "noise", "reason": reason})
+
         if not candidates:
+            flush_skipped()
             page["halt"] = "no-arm"
             page["skipped"] = "no-arm"
             page["stopped"] = "no-arm"
@@ -152,12 +156,14 @@ class ArmSession:
                 page["stopped"] = "ok"
                 if stop_on_ok:
                     page["requests"] = used
+                    flush_skipped()
                     return page
                 candidates.remove(name)
                 continue
             if not verdict["attributable"]:
                 page["stopped"] = verdict["outcome"]
                 page["requests"] = used
+                flush_skipped()
                 return page
             candidates.remove(name)
             if state["aborted"]:
@@ -165,9 +171,11 @@ class ArmSession:
                 page["halt"] = "circuit-open"
                 page["reason"] = state["reason"]
                 page["requests"] = used
+                flush_skipped()
                 return page
 
         page["requests"] = used
         if page["evidence"] is None and page["halt"] is None:
             page["stopped"] = "no-arm"
+        flush_skipped()
         return page
