@@ -29,11 +29,8 @@ import argparse
 import json
 import os
 import sys
-from urllib.parse import urlsplit
-
-from reconlib import evidence, fetch, measure, pacing, robots
-from reconlib.classify import classify
-from reconlib.policy import ALGORITHMS, Bandit
+from reconlib import evidence, fetch
+from reconlib.policy import ALGORITHMS
 
 MAX_PAGES = 50
 MAX_REQUESTS = 150
@@ -41,137 +38,52 @@ MAX_CONSECUTIVE_BLOCKED = 3
 DEFAULT_DELAY = 5.0
 DEFAULT_ARMS = "native,cffi:chrome"
 
-RANK = {"ok": 3, "degraded": 2, "blocked": 1}
-
-
-def host_of(url):
-    return urlsplit(url).netloc or url
-
-
-def parse_arms(text, impersonate="chrome"):
-    arms = []
-    for raw in (text or "").split(","):
-        raw = raw.strip()
-        if not raw:
-            continue
-        if raw == "cffi":
-            raw = f"cffi:{impersonate}"
-        fetch.parse_arm(raw)
-        arms.append(raw)
-    if not arms:
-        raise ValueError("至少需要一个客户端臂")
-    return arms
-
-
-def rank(outcome):
-    return RANK.get(outcome, 0)
-
-
-def probe_page(url, args, bandit, pace, budget, ev_rows, trials):
-    host = host_of(url)
-    page = {"url": url, "host": host, "tries": [], "evidence": None, "stopped": None}
-    candidates = list(args.arm_list)
-    used = 0
-
-    while candidates:
-        if used >= budget:
-            page["stopped"] = "budget"
-            return page, used, f"达到 max-requests={args.max_requests}"
-        arm = bandit.select(host, candidates)
-        pace.wait(host)
-        obs = fetch.fetch_one(url, arm, timeout=args.timeout, ua=args.ua)
-        html = measure.is_html(obs["ctype"])
-        content = measure.content_len(obs["body"], args.selector) if html else "-"
-        verdict = classify(obs, args.selector, args.min_content, content=content)
-
-        if obs.get("skipped"):
-            page["tries"].append({"arm": arm, "skipped": True,
-                                  "outcome": verdict["outcome"]})
-            candidates.remove(arm)
-            continue
-
-        used += 1
-        state = pace.observe(host, verdict["outcome"], verdict["rate_limited"],
-                             pacing.retry_after(obs.get("headers") or ""))
-        bandit.update_from_outcome(host, arm, verdict["outcome"], verdict["rate_limited"])
-        saved = fetch.save_html(args.out_dir, url, arm, obs["body"])
-
-        trial = evidence.trial_row(url, arm, verdict, attempt=len(page["tries"]) + 1,
-                                   elapsed_ms=obs.get("elapsed_ms"))
-        if saved:
-            trial["saved"] = saved
-        trials.append(trial)
-        page["tries"].append({
-            "arm": arm, "status": obs["status"], "bytes": obs["bytes"],
-            "content": content, "outcome": verdict["outcome"],
-            "attributable": verdict["attributable"],
-            "rate_limited": verdict["rate_limited"], "saved": saved,
-        })
-
-        obs["content"] = content
-        row = evidence.evidence_row(obs, verdict, route=evidence.route_of(url))
-        if page["evidence"] is None or rank(row["outcome"]) > rank(page["evidence"]["outcome"]):
-            page["evidence"] = row
-
-        if verdict["outcome"] == "ok":
-            page["stopped"] = "ok"
-            return page, used, None
-        if not verdict["attributable"]:
-            page["stopped"] = verdict["outcome"]
-            return page, used, None
-        candidates.remove(arm)
-        if state["aborted"]:
-            page["stopped"] = "circuit-open"
-            return page, used, f"circuit-open: {state['reason']}"
-
-    if page["evidence"] is None:
-        page["stopped"] = page["stopped"] or "no-arm"
-        return page, used, "没有可用的客户端臂"
-    return page, used, None
-
-
 def crawl(urls, args):
-    bandit = Bandit(args.arm_list, algorithm=args.policy, seed=args.seed,
-                    min_pulls=args.min_pulls)
-    pace = pacing.Pacing(delay=args.delay,
-                         max_consecutive_blocked=args.max_consecutive_blocked)
-    pages, ev_rows, trials = [], [], []
-    requests = 0
-    stopped = None
+    from reconlib import arms as armreg
+    from reconlib.session import ArmSession, host_of
+
+    registry = armreg.load(args.arms_file)
+    arm_list = armreg.parse_list(args.arms, registry, args.impersonate)
+    require = armreg.parse_require(args.require)
+    save = (lambda url, arm, body: fetch.save_html(args.out_dir, url, arm, body)
+            if args.out_dir else None)
+    session = ArmSession(
+        arm_list, registry=registry, policy=args.policy, seed=args.seed,
+        min_pulls=args.min_pulls, delay=args.delay, timeout=args.timeout,
+        ua=args.ua, max_consecutive_blocked=args.max_consecutive_blocked,
+        save=save, require=require, permission=args.i_have_permission)
+
+    pages, requests, stopped = [], 0, None
     warned = set()
+
+    def warn(host):
+        if host not in warned:
+            warned.add(host)
+            print(f"# 警告：{host} 的 robots.txt 取不到，合规状态未知",
+                  file=sys.stderr)
 
     for url in urls:
         if len(pages) >= args.max_pages:
             stopped = f"达到 max-pages={args.max_pages}"
             break
-        host = host_of(url)
-        if not args.i_have_permission:
-            allowed = robots.decision(url, timeout=args.timeout)
-            if allowed == "deny":
-                pages.append({"url": url, "host": host, "tries": [], "evidence": None,
-                              "stopped": "robots-deny", "skipped": "robots-deny"})
-                continue
-            if allowed == "unknown" and host not in warned:
-                warned.add(host)
-                print(f"# 警告：{host} 的 robots.txt 取不到，合规状态未知", file=sys.stderr)
-        if pace.aborted(host):
-            reason = pace.snapshot(host)["reason"]
-            pages.append({"url": url, "host": host, "tries": [], "evidence": None,
-                          "stopped": "circuit-open",
-                          "skipped": f"circuit-open: {reason}"})
-            continue
-
-        page, used, stop = probe_page(url, args, bandit, pace,
-                                      args.max_requests - requests, ev_rows, trials)
-        requests += used
+        page = session.probe(
+            url, selector=args.selector, min_content=args.min_content,
+            max_attempts=args.max_requests - requests, require=require,
+            permission=args.i_have_permission, warn=warn)
+        requests += page["requests"]
         pages.append(page)
-        if page["evidence"]:
-            ev_rows.append(page["evidence"])
-        if stop:
-            stopped = stopped or stop
-            # 熔断只封这个 host：余下同 host 的 URL 会在顶部被记为 skipped，其他 host 仍可跑
-            if not stop.startswith("circuit-open"):
-                break
+        if page["halt"] == "budget":
+            stopped = stopped or f"达到 max-requests={args.max_requests}"
+            break
+        if page["halt"] == "no-arm":
+            stopped = stopped or "没有可用的客户端臂"
+            break
+        if page["halt"] == "circuit-open":
+            stopped = stopped or f"circuit-open: {page.get('reason', '连续 blocked')}"
+            # 熔断只封这个 host：余下 URL 会在 probe 顶部被记为 skipped
+
+    ev_rows = [p["evidence"] for p in pages if p["evidence"]]
+    trials = session.trials
 
     if args.evidence_out:
         evidence.write_jsonl(args.evidence_out, ev_rows)
@@ -192,9 +104,9 @@ def crawl(urls, args):
         "outcomes": outcomes,
         "stopped": stopped,
         "policy": args.policy,
-        "arms": args.arm_list,
+        "arms": arm_list,
         "seed": args.seed,
-        "hosts": [bandit.snapshot(h) for h in hosts],
+        "hosts": [session.snapshot(h) for h in hosts],
     }
     return pages, summary, ev_rows, trials
 
@@ -227,6 +139,9 @@ def main():
     ap.add_argument("--min-content", type=int, default=200, help="内容区字符下限，默认 200")
     ap.add_argument("--arms", default=DEFAULT_ARMS,
                     help=f"逗号分隔的客户端臂，默认 {DEFAULT_ARMS}")
+    ap.add_argument("--arms-file",
+                    help="外部臂配置 JSON（默认 ~/.config/site-recon/arms.json）")
+    ap.add_argument("--require", default="", help="硬性能力要求，如 js（逗号分隔）")
     ap.add_argument("--impersonate", default="chrome", help="裸 cffi 臂使用的仿真目标")
     ap.add_argument("--policy", choices=ALGORITHMS, default="thompson",
                     help="选举策略，默认 thompson")
@@ -255,8 +170,11 @@ def main():
         ap.error("--max-pages / --max-requests 必须 >= 1")
     if args.delay < 0:
         ap.error("--delay 不能为负")
+    from reconlib import arms as armreg
     try:
-        args.arm_list = parse_arms(args.arms, args.impersonate)
+        registry = armreg.load(args.arms_file)
+        args.arm_list = armreg.parse_list(args.arms, registry, args.impersonate)
+        armreg.parse_require(args.require)
     except ValueError as e:
         ap.error(str(e))
 

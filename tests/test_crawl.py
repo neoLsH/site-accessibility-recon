@@ -108,6 +108,21 @@ class CrawlTest(unittest.TestCase):
                 if os.path.exists(path):
                     os.unlink(path)
 
+    def test_unconfigured_browser_arm_is_skipped(self):
+        cfg = support.write_temp('{"arms": []}')
+        try:
+            r, data = support.run_json("crawl", "http://127.0.0.1:9/x",
+                                       "--arms", "browser:chromium",
+                                       "--arms-file", cfg, "--delay", "0",
+                                       "--timeout", "5", "--json")
+        finally:
+            os.unlink(cfg)
+        self.assertEqual(r.returncode, 1)
+        page = data["pages"][0]
+        self.assertEqual(page["skipped"], "no-arm")
+        self.assertEqual(page["requests"], 0)
+        self.assertIn("没有可用的客户端臂", data["summary"]["stopped"])
+
     def test_invalid_policy_is_usage_error(self):
         r = support.run("crawl", "http://127.0.0.1:9/x", "--policy", "magic")
         self.assertEqual(r.returncode, 2)
