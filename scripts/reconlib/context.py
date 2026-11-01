@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 ARTICLE = re.compile(
     r"/(?:article|post|story|news|detail|item|content|blog|wiki|thread|topic)/", re.I)
 LIST = re.compile(
-    r"/(?:list|search|tag|category|archive|index|feed|topics|articles|s|page)/|/$",
+    r"/(?:list|search|tag|category|archive|index|feed|topics|articles|s|page)(?:/|$)|/$",
     re.I)
 API = re.compile(r"/(?:api|graphql|rest|v\d+)/|\.json$|/ajax/", re.I)
 
