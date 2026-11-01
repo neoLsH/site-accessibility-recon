@@ -1,3 +1,4 @@
+import os
 import unittest
 
 import support
@@ -88,6 +89,19 @@ class FetchCliTest(unittest.TestCase):
                                        "--rung", "native", "--json")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(len(data["records"][0]["rungs"]), 1)
+
+    def test_unconfigured_browser_arm_is_reported(self):
+        cfg = support.write_temp('{"arms": []}')
+        try:
+            r, data = support.run_json("fetch", "http://127.0.0.1:9/x",
+                                       "--arms", "browser:chromium",
+                                       "--arms-file", cfg, *OPTS, "--json")
+        finally:
+            os.unlink(cfg)
+        self.assertEqual(r.returncode, 1)
+        rec = data["records"][0]
+        self.assertEqual(rec["verdict"], "未拿到内容")
+        self.assertTrue(rec["rungs"][0]["skipped"])
 
     def test_invalid_rung_is_usage_error(self):
         r = support.run("fetch", "http://127.0.0.1:9/x", "--rung", "browser")

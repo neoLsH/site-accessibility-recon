@@ -27,11 +27,14 @@ import json
 import sys
 import time
 
-from reconlib import fetch, measure, robots
-from reconlib.classify import classify
+from reconlib import arms as armreg
+from reconlib import fetch
+from reconlib.policy import ALGORITHMS
 
 
-def resolve_arms(args):
+def resolve_arms(args, registry):
+    if args.arms:
+        return armreg.parse_list(args.arms, registry, args.impersonate)
     rung = args.rung or ("native" if args.no_browser_stack else "both")
     if rung == "native":
         return ["native"]
@@ -40,55 +43,70 @@ def resolve_arms(args):
     return ["native", f"cffi:{args.impersonate}"]
 
 
-def probe(url, args):
+def probe(url, args, registry, arm_list):
+    from reconlib.session import ArmSession, display_arm
+
     record = {"url": url, "robots": "skipped" if args.i_have_permission else None,
               "rungs": [], "verdict": None, "waf_class": None, "evidence": []}
+    require = armreg.parse_require(args.require)
+    save = (lambda u, a, body: fetch.save_html(args.out_dir, u, a, body)
+            if args.out_dir else None)
+    session = ArmSession(
+        arm_list, registry=registry, policy=args.policy, delay=0.0,
+        timeout=args.timeout, ua=args.ua, save=save, require=require,
+        permission=args.i_have_permission)
+    page = session.probe(
+        url, selector=args.selector, min_content=args.min_content,
+        max_attempts=len(arm_list), require=require,
+        permission=args.i_have_permission,
+        warn=lambda host: print(f"# 警告：{url} 的 robots.txt 取不到，合规状态未知",
+                                file=sys.stderr))
+    record["robots"] = page["robots"]
 
-    if not args.i_have_permission:
-        record["robots"] = robots.decision(url, timeout=args.timeout)
-        if record["robots"] == "deny":
-            record["verdict"] = "合规禁止"
-            record["evidence"] = ["robots.txt 不允许抓取"]
-            return record, False
-        if record["robots"] == "unknown":
-            print(f"# 警告：{url} 的 robots.txt 取不到，合规状态未知", file=sys.stderr)
-
-    last = None
-    for arm in resolve_arms(args):
-        obs = fetch.fetch_one(url, arm, timeout=args.timeout, ua=args.ua)
-        html = measure.is_html(obs["ctype"])
-        content = measure.content_len(obs["body"], args.selector) if html else "-"
-        verdict = classify(obs, args.selector, args.min_content, content=content)
-        saved = fetch.save_html(args.out_dir, url, arm, obs["body"])
-
-        rung = {k: v for k, v in obs.items() if k not in ("body", "arm", "final_url")}
-        rung.update(rung=fetch.display_arm(arm), final=obs["final_url"],
-                    content=content, saved=saved,
-                    outcome=verdict["outcome"],
-                    attributable=verdict["attributable"],
-                    rate_limited=verdict["rate_limited"])
+    for t in page["tries"]:
+        skipped = t.get("skipped", False)
+        rung = {
+            "rung": display_arm(registry.get(t["arm"])),
+            "status": "-" if skipped else t.get("status", "-"),
+            "bytes": "-" if skipped else t.get("bytes", "-"),
+            "content": "-" if skipped else t.get("content", "-"),
+            "final": t.get("final", url), "saved": t.get("saved"),
+            "outcome": t["outcome"],
+            "attributable": t.get("attributable", False),
+            "rate_limited": t.get("rate_limited", False),
+            "elapsed_ms": t.get("elapsed_ms", 0),
+        }
+        if skipped:
+            rung["skipped"] = True
+            rung["error"] = t.get("reason")
         record["rungs"].append(rung)
 
-        if not obs.get("skipped"):
-            last = verdict
-        if verdict["outcome"] == "ok":
+    if page["skipped"] == "robots-deny":
+        record["verdict"] = "合规禁止"
+        record["evidence"] = ["robots.txt 不允许抓取"]
+        return record, False
+
+    if page["evidence"]:
+        if page["evidence"]["outcome"] == "ok":
             record["verdict"] = "已拿到内容"
             if len(record["rungs"]) > 1:
                 record["waf_class"] = "2 协议栈白名单（低阶被拦、高阶放行）"
             return record, True
-        if not verdict["attributable"]:
-            break
-
-    if last is None:
+        last = page.get("last") or {}
         record["verdict"] = "未拿到内容"
-        record["waf_class"] = "0 未归类"
-        record["evidence"] = ["没有可用的客户端臂；请安装 curl_cffi 或改用真实浏览器内核"]
+        no = last.get("waf_no") or 0
+        record["waf_class"] = (f"{no} {last.get('waf_class')}"
+                               if no else last.get("waf_class"))
+        record["evidence"] = last.get("evidence") or []
         return record, False
 
     record["verdict"] = "未拿到内容"
-    record["waf_class"] = (f"{last['waf_no']} {last['waf_class']}"
-                           if last["waf_no"] else last["waf_class"])
-    record["evidence"] = last["evidence"]
+    record["waf_class"] = "0 未归类"
+    if page["tries"] and all(t.get("skipped") for t in page["tries"]):
+        record["evidence"] = [
+            "没有可用的客户端臂；请安装 curl_cffi 或配置外部内核（--arms-file）"]
+    else:
+        record["evidence"] = ["没有可用的客户端臂；请安装 curl_cffi 或改用真实浏览器内核"]
     return record, False
 
 
@@ -127,6 +145,12 @@ def main():
                        help="只跑某一级客户端臂，默认 both（native → cffi）")
     group.add_argument("--no-browser-stack", action="store_true",
                        help="等价于 --rung native（保留旧参数）")
+    group.add_argument("--arms", help="逗号分隔的客户端臂（可用 browser:<engine>）")
+    ap.add_argument("--arms-file",
+                    help="外部臂配置 JSON（默认 ~/.config/site-recon/arms.json）")
+    ap.add_argument("--require", default="", help="硬性能力要求，如 js（逗号分隔）")
+    ap.add_argument("--policy", choices=ALGORITHMS, default="fixed",
+                    help="选臂策略，默认 fixed（按给定顺序）")
     ap.add_argument("--timeout", type=int, default=20)
     ap.add_argument("--delay", type=float, default=5.0, help="URL 之间的间隔，默认 5s")
     ap.add_argument("--out-dir", help="保存每级响应体")
@@ -150,11 +174,18 @@ def main():
         return 2
     urls = [u if u.startswith(("http://", "https://")) else f"https://{u}" for u in urls]
 
+    try:
+        registry = armreg.load(args.arms_file)
+        arm_list = resolve_arms(args, registry)
+        armreg.parse_require(args.require)
+    except ValueError as e:
+        ap.error(str(e))
+
     records, any_ok = [], False
     for i, url in enumerate(urls):
         if i:
             time.sleep(args.delay)
-        rec, ok = probe(url, args)
+        rec, ok = probe(url, args, registry, arm_list)
         records.append(rec)
         any_ok = any_ok or ok
 
