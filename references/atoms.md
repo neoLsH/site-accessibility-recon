@@ -8,7 +8,7 @@
 - **可单测**：纯函数不联网，本地 fixture 即可验证；网络部分只集中在 `fetch` / `robots`。
 - **可替换**：换渲染服务、换协议栈，只加一个客户端臂，不动归类和度量。
 
-## 七个原子
+## 八个原子
 
 | 模块 | 回答什么 | 关键接口 | 副作用 |
 |---|---|---|---|
@@ -19,10 +19,11 @@
 | `pacing` | 现在能不能发、下次等多久、何时熔断 | `Pacing.wait/observe` · `retry_after` · `default_delay` | 只睡，不发请求 |
 | `evidence` | 这页记成什么行 | `evidence_row` · `trial_row` · `write_jsonl` | 写文件（调用方给路径） |
 | `policy` | 下一步该用哪条臂 | `Bandit.select/update/snapshot` | 无（内存态） |
+| `simulate` | 这个胜率下换策略值不值 | `parse_rates` · `rates_from_trials` · `simulate` | 无（纯离线） |
 
 `measure` 只量选择器命中的容器，并跳过 `script` / `style`；整页字节会把导航和页脚算进来，是最常见的指标虚高来源。`content_len` 的返回可能是数字，也可能是 `missing` / `?unsupported` / `-`，调用方不要假定一定是整数。
 
-`pacing` 的时钟与 sleep 可注入，测试不真的等待；`policy` 的随机种子可复现。三者都不联网，可单测。
+`pacing` 的时钟与 sleep 可注入，测试不真的等待；`policy` 的随机种子可复现。三者都不联网，可单测。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。
 
 ## 观测与归类契约
 

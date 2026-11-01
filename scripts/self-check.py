@@ -21,7 +21,8 @@
  17. 原子层契约：reconlib 可导入，度量与归类字段稳定，fetch-page 复用
  18. 行为测试：tests/ 有可编译的用例，且已接入 CI
  19. 批量采集护栏：crawl 的预算 / 间隔 / 熔断常量受限，试验行不能混入证据行
- 20. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 20. 离线推演：bandit 不发请求、同 seed 可复现，示例试验行口径正确
+ 21. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -62,6 +63,7 @@ REQUIRED = [
     "references/walkthrough.md",
     "references/atoms.md",
     "references/crawl.md",
+    "references/bandit.md",
     "assets/site-profile.template.yaml",
     "assets/report-template.md",
     "assets/shape-signals.json",
@@ -69,6 +71,7 @@ REQUIRED = [
     "assets/example/evidence.jsonl",
     "assets/example/evidence-before.jsonl",
     "assets/example/evidence-after.jsonl",
+    "assets/example/trials.jsonl",
     "assets/example/site/index.html",
     "assets/example/site/article/index.html",
     "assets/example/site/article/1.html",
@@ -83,6 +86,7 @@ REQUIRED = [
     "scripts/fp-echo.py",
     "scripts/fetch-page.py",
     "scripts/crawl.py",
+    "scripts/bandit.py",
     "scripts/reconlib/__init__.py",
     "scripts/reconlib/measure.py",
     "scripts/reconlib/classify.py",
@@ -91,6 +95,7 @@ REQUIRED = [
     "scripts/reconlib/pacing.py",
     "scripts/reconlib/evidence.py",
     "scripts/reconlib/policy.py",
+    "scripts/reconlib/simulate.py",
     "scripts/js-surface.py",
     "scripts/shape.py",
     "scripts/canary.py",
@@ -106,6 +111,8 @@ REQUIRED = [
     "tests/test_evidence.py",
     "tests/test_policy.py",
     "tests/test_crawl.py",
+    "tests/test_simulate.py",
+    "tests/test_bandit.py",
 ]
 
 # 脱敏红线：命中即失败。这里只放公开可提的站点 / 厂商。
@@ -691,6 +698,60 @@ def check_crawl_guard():
         ok("crawl 护栏：pages<=50、requests<=150、delay>=5s、熔断<=3；试验行被 stats 拒绝")
 
 
+def check_bandit_smoke():
+    """推演必须离线、可复现，样本筛选口径要与 crawl 一致。"""
+    code = """
+import sys
+sys.path.insert(0, "scripts")
+from reconlib import simulate
+
+rates = simulate.parse_rates("native=0.3,cffi:chrome=0.8")
+a = simulate.simulate("thompson", rates, pages=40, seed=7)
+b = simulate.simulate("thompson", rates, pages=40, seed=7)
+assert a == b, "同 seed 不可复现"
+assert a["requests"] <= 40 * 2, "请求数超出臂数上限"
+
+got = simulate.rates_from_trials([
+    {"kind": "trial", "arm": "native", "trial_outcome": "ok"},
+    {"kind": "trial", "arm": "native", "trial_outcome": "noise"},
+    {"kind": "trial", "arm": "native", "trial_outcome": "blocked", "rate_limited": True},
+])
+assert got == {"native": 1.0}, got
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("推演原子异常: " + " | ".join(tail))
+        return
+    body = read("scripts/bandit.py")
+    if "fetch_one" in body or "robots" in body:
+        fail("bandit 不应发请求（出现了 fetch_one / robots）")
+        return
+    if "simulate" not in body or "policy" not in body:
+        fail("bandit 未复用 simulate / policy 原子")
+        return
+
+    r = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "bandit",
+         "--trials", os.path.join(ROOT, "assets/example/trials.jsonl"),
+         "--pages", "50", "--json"],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        fail(f"bandit 示例异常: {(r.stderr or r.stdout).strip()[:200]}")
+        return
+    try:
+        got_body = json.loads(r.stdout)
+    except ValueError:
+        fail("bandit --json 不是合法 JSON")
+        return
+    rates = got_body.get("rates") or {}
+    if (round(rates.get("native", -1), 3), round(rates.get("cffi:chrome", -1), 3)) != (0.4, 0.75):
+        fail(f"bandit 示例胜率口径异常: {rates}")
+        return
+    ok("推演可复现且离线；示例试验行估出 native=0.40、cffi=0.75")
+
+
 def check_tests():
     mods = [os.path.basename(p) for p in test_files() if os.path.basename(p).startswith("test_")]
     if not mods:
@@ -738,6 +799,7 @@ def main():
     check_stats_smoke()
     check_atoms_contract()
     check_crawl_guard()
+    check_bandit_smoke()
     check_tests()
     if "--tests" in sys.argv[1:]:
         run_tests()

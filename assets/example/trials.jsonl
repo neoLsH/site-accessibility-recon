@@ -1,0 +1,10 @@
+{"kind": "trial", "route": "/article/1", "url": "https://example.invalid/article/1", "arm": "native", "attempt": 1, "trial_outcome": "ok", "rate_limited": false}
+{"kind": "trial", "route": "/article/2", "url": "https://example.invalid/article/2", "arm": "native", "attempt": 1, "trial_outcome": "blocked", "rate_limited": false}
+{"kind": "trial", "route": "/article/2", "url": "https://example.invalid/article/2", "arm": "cffi:chrome", "attempt": 2, "trial_outcome": "ok", "rate_limited": false}
+{"kind": "trial", "route": "/article/3", "url": "https://example.invalid/article/3", "arm": "native", "attempt": 1, "trial_outcome": "blocked", "rate_limited": false}
+{"kind": "trial", "route": "/article/3", "url": "https://example.invalid/article/3", "arm": "cffi:chrome", "attempt": 2, "trial_outcome": "ok", "rate_limited": false}
+{"kind": "trial", "route": "/article/4", "url": "https://example.invalid/article/4", "arm": "native", "attempt": 1, "trial_outcome": "degraded", "rate_limited": false}
+{"kind": "trial", "route": "/article/4", "url": "https://example.invalid/article/4", "arm": "cffi:chrome", "attempt": 2, "trial_outcome": "ok", "rate_limited": false}
+{"kind": "trial", "route": "/article/5", "url": "https://example.invalid/article/5", "arm": "native", "attempt": 1, "trial_outcome": "blocked", "rate_limited": true}
+{"kind": "trial", "route": "/article/6", "url": "https://example.invalid/article/6", "arm": "native", "attempt": 1, "trial_outcome": "ok", "rate_limited": false}
+{"kind": "trial", "route": "/article/6", "url": "https://example.invalid/article/6", "arm": "cffi:chrome", "attempt": 1, "trial_outcome": "blocked", "rate_limited": false}

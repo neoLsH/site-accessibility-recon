@@ -4,6 +4,31 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.12.0] — 2026-11-02
+
+把“换不换选举策略”变成离线可算的问题：给定每臂胜率，比较各策略的请求开销与成功率，不用再拿真实流量试错。
+
+### 新增
+
+- `recon bandit`（`scripts/bandit.py`）：`--arms native=0.4,cffi:chrome=0.75` 或 `--trials <试验行>` 二选一，推演 `thompson` / `ucb1` / `fixed` / `round_robin`，并给出 `best-single` 期望基线。
+- 试验行来源只取可归因、非限频的尝试：`ok` 记成功，`degraded` / `blocked` 记失败，`noise` / `auth` / `missing` 与 `rate_limited` 剔除。
+- `reconlib/simulate.py`：`parse_rates` / `rates_from_trials` / `simulate` / `best_single`；不发请求，同 `--seed` 可复现。
+- `assets/example/trials.jsonl`：示例试验行，`bandit` 估出 `native=0.40`、`cffi:chrome=0.75`。
+- `tests/test_simulate.py`（11 个）、`tests/test_bandit.py`（8 个）。
+- `references/bandit.md`：指标读法、自适应采样偏差、点估计与不模拟节流的限制。
+- 自检新增离线推演检查：`bandit` 不含网络调用、同 seed 可复现、示例胜率口径正确。
+
+### 变更
+
+- `references/atoms.md` 扩到八个原子；`crawl.md`、`cli.md`、`toolbox.md`、`SKILL.md`、`README.md`、`AGENTS.md` 同步。
+- `SKILL.md` 版本升到 1.12.0。
+
+### 已知限制
+
+- 每臂只用一个点估计胜率，不建模概率门、时间漂移与缓存；胜率本身仍须实测。
+- `--trials` 的样本由上一轮策略自适应采集，弱臂样本更少，估计更不稳；样本不足时建议手给 `--arms`。
+- 推演不产生证据行，不能喂 `stats`，也不写进档案的 `metrics`。
+
 ## [1.11.0] — 2026-11-02
 
 把批量取内容做成可结算的编排：多臂老虎机在已有客户端臂之间选举，节流与熔断写进代码，产出能直接喂 `stats` 的证据行。

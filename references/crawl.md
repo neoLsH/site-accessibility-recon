@@ -67,6 +67,16 @@ recon stats recon/demo/evidence.jsonl          # 跑完直接结算
 - 用 `crawl` 反复重试同一批被 blocked 的 URL：熔断后应换数据源或降级口径，而不是继续加请求。
 - 在多个 host 之间共享一个策略：胜率会被平均掉，选臂失去意义。
 
+## 跑完之后
+
+`--trial-out` 的试验行可以直接喂离线推演，比较 `thompson` 与 `fixed` 在同样胜率下的请求开销：
+
+```bash
+recon bandit --trials recon/demo/trials.jsonl --pages 200
+```
+
+推演只回答“换策略值不值”，不产生新证据；偏差与读法见 [bandit.md](bandit.md)。
+
 ## 边界
 
 只测有权测的目标；遵守 robots、ToS 与站点限速。不提供验证码求解、账号池、凭证填充、出口轮换，也不绕过付费墙 / 登录鉴权 / 访问控制。`crawl` 只是把已有客户端臂的选举与节流做可靠，不改变这些边界。

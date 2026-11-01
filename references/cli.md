@@ -14,6 +14,7 @@
 | `stats` | `stats.py` | 按路由拆分的双指标、区间与改前改后差值 | `--compare` `--min-den`；位置参数为 JSONL / canary 基线 JSON |
 | `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--out-dir` |
 | `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--policy` `--seed` `--evidence-out` `--trial-out` |
+| `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` `--pages` `--policies` `--seed` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
 | `plan` | `plan.py` | 档案 lint + 从最早失败门推导执行计划 | 档案路径（位置参数） |
@@ -144,6 +145,21 @@ recon crawl --from urls.txt --selector '#content' \
 
 规则与误用见 [crawl.md](crawl.md)。
 
+## 离线推演
+
+`bandit` 不联网，用每臂胜率比较策略：
+
+```bash
+recon bandit --arms native=0.4,cffi:chrome=0.75 --pages 200 --seed 7
+recon bandit --trials recon/<代号>/trials.jsonl --json
+```
+
+- `--arms` 与 `--trials` 二选一；后者只取可归因、非限频的试验行。
+- `--policies` 默认跑 `thompson,ucb1,fixed,round_robin`，另附 `best-single` 期望基线。
+- 退出码 `0` 表示推演完成，不代表任何策略“已验证有效”。
+
+读法与偏差见 [bandit.md](bandit.md)。
+
 ## 常见组合
 
 ```bash
@@ -153,6 +169,7 @@ recon canary <url> --passes 5                        # 是否概率门
 recon matrix <url> --selector '#content' --passes 3  # 换栈是否翻转
 recon fetch <url> --selector '#content'              # 分层取内容
 recon crawl --from urls.txt --selector '#content'    # 批量：多臂选举 + 预算护栏
+recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演选臂策略
 recon plan recon/<代号>/profile.yaml                 # 档案 → 计划
 recon stats recon/<代号>/evidence.jsonl              # 双指标
 recon report recon/<代号>/profile.yaml --out recon/<代号>/report.md

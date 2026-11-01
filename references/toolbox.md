@@ -16,6 +16,7 @@
 | 站点 JS 采集面 | `scripts/js-surface.py` | 手工 grep bundle | 静态命中 ≠ 运行时调用，需动态确认 |
 | 取内容（阶梯） | `scripts/fetch-page.py` | 手工逐级 curl | 失败时顺带给出 WAF 归类；`--rung` 只跑一级 |
 | 批量取内容 | `scripts/crawl.py` | 循环 curl + 手写重试 | MAB 选臂 + 预算 / 节流 / 熔断，见 [crawl.md](crawl.md) |
+| 推演选臂策略 | `scripts/bandit.py` | 直接换策略上线 | 离线比较请求开销，不发请求，见 [bandit.md](bandit.md) |
 | 复用量测 / 归类 / 取样 | `scripts/reconlib/` | 复制脚本片段 | 原子层只有一份口径，见 [atoms.md](atoms.md) |
 | 浏览器自动化 | 你的渲染服务 / Playwright | 直连 CDP | 优先复用已有渲染链路 |
 | 内容区度量 | `client-matrix.sh --selector` / `--html` | 浏览器 evaluate | 整页长度不可用 |
