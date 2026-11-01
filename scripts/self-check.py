@@ -18,8 +18,9 @@
  14. 概率门脚本的节流护栏（pass 上限与默认间隔）
  15. 形态判据表：assets/shape-signals.json 可解析，且被 shape.py 默认加载
  16. 双指标结算：stats 对示例证据行可运行，口径符合定义
- 17. 行为测试：tests/ 有可编译的用例，且已接入 CI
- 18. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 17. 原子层契约：reconlib 可导入，度量与归类字段稳定，fetch-page 复用
+ 18. 行为测试：tests/ 有可编译的用例，且已接入 CI
+ 19. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -57,6 +58,7 @@ REQUIRED = [
     "references/site-shapes.md",
     "references/cli.md",
     "references/walkthrough.md",
+    "references/atoms.md",
     "assets/site-profile.template.yaml",
     "assets/report-template.md",
     "assets/shape-signals.json",
@@ -77,6 +79,11 @@ REQUIRED = [
     "scripts/fingerprint-probe.js",
     "scripts/fp-echo.py",
     "scripts/fetch-page.py",
+    "scripts/reconlib/__init__.py",
+    "scripts/reconlib/measure.py",
+    "scripts/reconlib/classify.py",
+    "scripts/reconlib/robots.py",
+    "scripts/reconlib/fetch.py",
     "scripts/js-surface.py",
     "scripts/shape.py",
     "scripts/canary.py",
@@ -86,6 +93,8 @@ REQUIRED = [
     "scripts/report.py",
     "scripts/self-check.py",
     "tests/support.py",
+    "tests/test_atoms.py",
+    "tests/test_fetch.py",
 ]
 
 # 脱敏红线：命中即失败。这里只放公开可提的站点 / 厂商。
@@ -134,11 +143,14 @@ def markdown_files():
 
 
 def script_files():
+    skip = {"__pycache__"}
     out = []
-    for f in sorted(os.listdir(os.path.join(ROOT, "scripts"))):
-        if f.endswith((".sh", ".js", ".py")):
-            out.append(os.path.join("scripts", f))
-    return out
+    for base, dirs, files in os.walk(os.path.join(ROOT, "scripts")):
+        dirs[:] = [d for d in dirs if d not in skip]
+        for f in files:
+            if f.endswith((".sh", ".js", ".py")):
+                out.append(os.path.relpath(os.path.join(base, f), ROOT))
+    return sorted(out)
 
 
 def test_files():
@@ -593,6 +605,43 @@ def check_stats_smoke():
     ok("stats --compare 可运行，整体仅完整率改善、小样本判不足、示例无回归")
 
 
+def check_atoms_contract():
+    """原子层是 crawl / bandit 的公共底座：导入、度量与归类契约必须稳定。"""
+    code = """
+import sys
+sys.path.insert(0, "scripts")
+import stats
+from reconlib import measure
+from reconlib.classify import classify
+
+body = b'<div id="content">abc</div><script>var x=1</script>'
+assert measure.content_len(body, "#content") == 3, "内容区度量偏移"
+assert measure.is_html("text/html") and not measure.is_html("application/json")
+
+obs = {"status": 200, "ctype": "text/html", "headers": "", "body": body, "error": None}
+ok = classify(obs, "#content", 1)
+keys = {"outcome", "waf_no", "waf_class", "evidence", "attributable", "rate_limited"}
+assert set(ok) == keys, sorted(ok)
+assert ok["outcome"] == "ok" and ok["attributable"]
+
+limited = classify({"status": 429, "ctype": "text/html", "headers": "Retry-After: 1",
+                    "body": b"", "error": None}, "", 200)
+assert limited["outcome"] == "blocked" and limited["rate_limited"]
+assert not limited["attributable"]
+assert ok["outcome"] in stats.VALID and limited["outcome"] in stats.VALID
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("原子层契约异常: " + " | ".join(tail))
+        return
+    if "from reconlib" not in read("scripts/fetch-page.py"):
+        fail("fetch-page.py 未复用 reconlib 原子")
+        return
+    ok("原子层契约稳定（度量 / 归类 / outcome 词表），fetch-page 已复用")
+
+
 def check_tests():
     mods = [os.path.basename(p) for p in test_files() if os.path.basename(p).startswith("test_")]
     if not mods:
@@ -638,6 +687,7 @@ def main():
     check_canary_guard()
     check_shape_signals()
     check_stats_smoke()
+    check_atoms_contract()
     check_tests()
     if "--tests" in sys.argv[1:]:
         run_tests()

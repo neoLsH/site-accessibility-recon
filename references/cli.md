@@ -12,7 +12,7 @@
 | `matrix` | `client-matrix.sh` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--save-html` `--delay` |
 | `canary` | `canary.py` | 是否概率门；改前改后是否回归 | `--selector` `--passes` `--delay` `--save` `--compare` |
 | `stats` | `stats.py` | 按路由拆分的双指标、区间与改前改后差值 | `--compare` `--min-den`；位置参数为 JSONL / canary 基线 JSON |
-| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--no-browser-stack` `--out-dir` |
+| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--out-dir` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
 | `plan` | `plan.py` | 档案 lint + 从最早失败门推导执行计划 | 档案路径（位置参数） |
@@ -116,6 +116,15 @@ recon stats recon/<代号>/evidence-before.jsonl --compare recon/<代号>/eviden
 | L7 | — | 补样本，不下结论 |
 
 输出固定五步：复现对照 → 概率门定性 → 单变量 → 回归 → 回写档案，并附停止条件。档案里 `plan.level` 与推导不一致只是 WARN：更高成本的一级要等低级失效。
+
+## 客户端臂阶梯
+
+`fetch` 默认按 `native → cffi` 逐级取内容；`--rung both|native|cffi` 可只跑一级（`--no-browser-stack` 仍是 `--rung native` 的别名）。
+
+- 每级记录 `http / bytes / 内容区 / final_url / outcome / attributable / rate_limited`。
+- 成功即停；`attributable: false` 的失败（限频、鉴权、内容不存在、链路噪声）也停——换栈救不了，先处理那个问题。
+- 只有可归因的 `blocked` / `degraded` 才继续试下一级；两级都拦且高阶成功时归为 `2 协议栈白名单`。
+- 度量与归类的口径由 `scripts/reconlib/` 原子层提供，见 [atoms.md](atoms.md)。
 
 ## 常见组合
 

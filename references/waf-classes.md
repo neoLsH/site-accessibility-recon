@@ -31,6 +31,8 @@ native HTTP（curl） → 浏览器级协议栈（curl_cffi） → 真实浏览�
 ```
 
 - 每级都记录 `http / bytes / 内容区 / final_url`，成功即停。
+- 不可归因的失败（限频、鉴权、内容不存在、链路噪声）也停：换客户端臂救不了，先处理那个问题。
+- `--rung both|native|cffi` 可只跑一级；默认 `both`。
 - 全部失败时给出机制归类与证据，而不是“失败了”。
 - 默认执行 robots 检查；`--i-have-permission` 仅用于已获站点方许可的场景。
 - **不含**验证码求解、出口轮换、挑战 token 伪造。遇到第 3/4 类，脚本会明确建议改用真实内核或官方接口。
@@ -41,6 +43,9 @@ scripts/fetch-page.py 'https://example.com/article/1' --selector '#content'
 
 # 批量 + 落盘 HTML + JSON 证据
 scripts/fetch-page.py --from urls.txt --selector '#content' --out-dir recon/raw --json
+
+# 只跑原生栈，排除协议栈差异
+scripts/fetch-page.py 'https://example.com/article/1' --selector '#content' --rung native
 ```
 
 ## 工具（按用途，不按“能不能过”）

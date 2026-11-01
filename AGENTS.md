@@ -43,6 +43,7 @@
 - 实验设计与非确定性：[references/evidence-matrix.md](references/evidence-matrix.md)
 - 双指标与防虚高：[references/metrics.md](references/metrics.md)
 - 全部命令、选项、判据、退出码与基线阈值：[references/cli.md](references/cli.md)
+- 原子层（量测 / 归类 / robots / 取样）与扩展方式：[references/atoms.md](references/atoms.md)
 - 端到端走查（本地示例站，不碰真实目标）：[references/walkthrough.md](references/walkthrough.md)
 - 对策阶梯与决策树：[references/countermeasure-ladder.md](references/countermeasure-ladder.md)
 - 从档案到执行：lint 分级、层→级、五步、失败回流：[references/execution.md](references/execution.md)
@@ -68,7 +69,7 @@ scripts/recon.py stats recon/<代号>/evidence.jsonl               # 双指标�
 scripts/recon.py stats before.jsonl --compare after.jsonl        # 改前改后：差值与 Newcombe 区间，小样本判 insufficient
 scripts/fingerprint-probe.js                                    # 页面内指纹快照 + CDP 泄漏探针
 scripts/recon.py fp diff a.json b.json                          # 网络指纹快照 + 逐字段 diff
-scripts/recon.py fetch <url> --selector '#content'               # 客户端阶梯取内容 + WAF 归类
+scripts/recon.py fetch <url> --selector '#content'               # 客户端臂阶梯取内容 + WAF 归类（--rung 只跑一级）
 scripts/recon.py surface <url>                                  # 站点 JS 采集面：采了什么、往哪上报
 scripts/recon.py plan recon/<代号>/profile.yaml                  # 档案 lint + 执行计划
 scripts/recon.py report recon/<代号>/profile.yaml                # 从档案生成报告
@@ -87,6 +88,7 @@ scripts/recon.py report recon/<代号>/profile.yaml                # 从档案�
 - `SKILL.md` 是唯一入口，保持精简（≤150 行），细节下沉到 `references/`。
 - 每个 `references/*.md` 只回答一类问题，避免与 `SKILL.md` 重复。
 - 改动后跑 `python3 scripts/self-check.py`，必须零失败；涉及脚本行为时再跑 `python3 -m unittest discover -s tests -v`（本地 fixture，无外网）。
+- 新能力先落到 `scripts/reconlib/` 原子层，CLI 只做编排；度量与归类逻辑不允许在 CLI 里再写一份。
 - 改 `SKILL.md` 的 `metadata.version` 要同步 `README.md` 的「状态」与 `CHANGELOG.md` 的条目；案例投稿规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 - 案例必须脱敏：不含内网平台名、内网域名、IP、工单号、站点密钥或指纹常量。要拦的词写进 `~/.config/site-recon/denylist.local`（仓库外），不要放进仓库目录。
 - 新增结论时标注置信度：observed / mechanism / efficacy。

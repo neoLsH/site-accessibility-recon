@@ -4,6 +4,32 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.10.0] — 2026-11-02
+
+把单点能力拆成原子：量测、归类、robots、取样各只有一份口径，`fetch` 退化为编排层，为后续批量采集与多臂选举打底。
+
+### 新增
+
+- `scripts/reconlib/`：`measure`（内容区字符数）、`classify`（响应 → 结局与可归因性）、`robots`（合规判定）、`fetch`（客户端臂取样）。除 `fetch` / `robots` 外不联网，便于单测。
+- `classify` 固定输出 `outcome` / `waf_no` / `waf_class` / `evidence` / `attributable` / `rate_limited`；`outcome` 与 `stats` 词表一致，可直接落证据行。
+- `fetch-page.py --rung both|native|cffi`：只跑一级客户端臂；`--no-browser-stack` 保留为 `--rung native` 的别名。
+- `tests/test_atoms.py`（22 个）与 `tests/test_fetch.py`（8 个）：本地 server，无外网。
+- `references/atoms.md`：原子契约、客户端臂命名、扩展方式与边界。
+- 自检新增原子契约检查：`reconlib` 可导入、度量与归类字段稳定、`outcome` 在 `stats` 词表内、`fetch-page` 已复用原子；脚本语法检查递归覆盖 `scripts/reconlib/`。
+
+### 变更
+
+- `fetch-page.py` 只做编排，不再自带量测 / 归类 / robots 实现。
+- 阶梯停止条件收紧：只有可归因的 `blocked` / `degraded` 才试下一臂；限频、鉴权、内容不存在、链路噪声立即停止——换栈救不了，还会把限频污染成“被识别”。
+- 链路类退出码 `6 / 7 / 28 / 35` 统一归为“边缘/链路不可达”，“请完成…验证”变体归为交互验证。
+- `cli.md`、`waf-classes.md`、`toolbox.md`、`README.md`、`AGENTS.md` 同步原子层与 `--rung`；`SKILL.md` 版本升到 1.10.0。
+
+### 已知限制
+
+- 客户端臂仍只有 `native` 与 `cffi:<profile>`；真实浏览器内核由外部渲染服务承担，不在库内伪装。
+- 本版只固化原子与单 URL 阶梯，批量编排与多臂选举尚未接入。
+- 归类仍是启发式：单次观测不足以定类，仍需对照与多 pass（见 [metrics.md](references/metrics.md)）。
+
 ## [1.9.0] — 2026-11-01
 
 把 A/B 对比从人眼判断变成可结算的输出：改前改后两份证据行，按路由出差值、区间与“样本不足”判定。
