@@ -1,6 +1,6 @@
 # 批量取内容：crawl
 
-`fetch` 回答“这一页用哪条臂能拿到”，`crawl` 回答“一批页面，把有限的请求预算花在哪条臂上，并且留下能结算的证据”。
+`fetch` 回答“这一页用哪条臂能拿到”，`crawl` 回答“一批页面，把有限的请求预算花在哪条臂上，并且留下能结算的证据”。两者共用 `ArmSession`（robots → 节流 → 选臂 → 取样 → 归类 → 更新），`crawl` 只负责预算、跨页循环与落盘。
 
 ## 它做什么
 
@@ -10,7 +10,7 @@
 ```
 
 - **按 host 分别学习**：不同站点的拦截策略不同，臂的胜率不能跨站共享。
-- **臂只有已有客户端协议栈**：`native`、`cffi:<profile>`，或外接的渲染服务。不是“更多绕过手段”，而是把既有手段的选举做好。
+- **臂只有已有客户端协议栈**：`native`、`cffi:<profile>`，或外接的渲染服务（`browser:<engine>`，需仓库外配置）。不是“更多绕过手段”，而是把既有手段的选举做好；注册表见 [arms.md](arms.md)。
 - **失败可归因才换臂**：限频、鉴权、内容不存在、链路噪声换栈救不了，直接停手并如实记录。
 
 ## 选举规则
@@ -25,7 +25,7 @@
 | `noise`（5xx / 链路） | 不更新 | 指数退避 | 该页结束 |
 | `blocked`（不可归因，未归类） | 不更新 | 计数 +1 | 该页结束 |
 
-`thompson` 是默认策略：每臂维护 Beta 后验，按采样值选臂，冷启动用 `--min-pulls` 各试一次。也可选 `ucb1`、`fixed`（按给定顺序）、`round_robin`；`--seed` 固定后 `thompson` 可复现。
+`thompson` 是默认策略：每臂维护 Beta 后验，按采样值选臂，冷启动用 `--min-pulls` 各试一次。也可选 `ucb1`、`fixed`（按给定顺序）、`round_robin`；`--seed` 固定后 `thompson` 可复现。未配置或缺少 `--require` 能力的臂会记成 `skipped`，**不计请求预算、不触发熔断**，也不参与策略更新。
 
 ## 护栏（默认值即红线）
 
@@ -51,7 +51,8 @@
 
 ```bash
 recon crawl --from urls.txt --selector '#content' \
-    --arms native,cffi:chrome --policy thompson --seed 7 \
+    --arms native,cffi:chrome,browser:chromium --policy thompson --seed 7 \
+    --arms-file ~/.config/site-recon/arms.json \
     --evidence-out recon/demo/evidence.jsonl \
     --trial-out recon/demo/trials.jsonl
 

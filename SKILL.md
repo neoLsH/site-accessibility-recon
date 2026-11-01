@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 python3 与 curl；建议另装 curl_cffi 做浏览器级 TLS 指纹仿真。要让脚本真正联网，还需要能出网的出口；断网时自动降级为离线复核（只分析已留存的 HTML 与快照）。
 allowed-tools: Bash, Read, Write, Edit, WebFetch, Task
 metadata:
-  version: 1.13.0
+  version: 1.14.0
   scope: diagnostics
 ---
 
@@ -94,6 +94,7 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 | 查某条命令的选项、判据与退出码 | [references/cli.md](references/cli.md) |
 | 扩展脚本、复用量测 / 归类 / 取样能力 | [references/atoms.md](references/atoms.md) |
 | 批量取内容、多臂选臂、控预算与熔断 | [references/crawl.md](references/crawl.md) |
+| 配外部浏览器内核、臂命名、能力过滤与安全边界 | [references/arms.md](references/arms.md) |
 | 离线推演：换选举策略值不值 | [references/bandit.md](references/bandit.md) |
 | 四种形态怎么分工（Skill / CLI / Agent / LLM） | [references/forms.md](references/forms.md) |
 | 接 Agent / LLM：证据行 → 下一步动作（契约、提示骨架、护栏） | [references/agent.md](references/agent.md) |
@@ -114,6 +115,7 @@ recon plan recon/<代号>/profile.yaml                # 档案 lint → 执行�
 recon stats recon/<代号>/evidence.jsonl             # 双指标（按路由 + 区间）
 recon stats before.jsonl --compare after.jsonl      # 改前改后差值 + 样本下限
 recon fetch <url> --selector '#content' --rung native  # 只跑一级客户端臂
+recon fetch <url> --arms browser:chromium --arms-file ~/.config/site-recon/arms.json  # 外部内核
 recon crawl --from urls.txt --selector '#content'   # 批量取内容：多臂选举 + 预算护栏
 recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演选臂策略
 recon advise recon/<代号>/evidence.jsonl --json      # 证据行 → 下一步动作（Agent / LLM 契约）

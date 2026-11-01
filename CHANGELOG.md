@@ -4,6 +4,32 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.14.0] — 2026-11-02
+
+把“客户端臂”从两个硬编码名字变成可扩展注册表，并把 robots、节流、选臂、归类、更新收敛到唯一编排层。
+
+### 新增
+
+- `reconlib/arms.py`：臂注册表。内置 `native` / `cffi:<profile>` / `browser:<engine>`；外部条目可覆盖内置，同名重复被拒；能力 `tls/h2/js/cookies` 供 `--require` 硬过滤。
+- `reconlib/render.py`：外部内核适配器，支持 `cmd`（argv，不经 shell，占位符 `{url} {engine} {ua} {timeout}`）与 `http`（POST JSON）两种传输；响应体上限 16 MiB；协议错误统一归 `noise`。
+- `reconlib/session.py`：`ArmSession` 编排层（robots → pacing → 选臂 → 取样 → 归类 → 更新 → 证据行 / 试验行），供 `fetch` / `crawl` / `canary` 共用。
+- `references/arms.md`：臂模型、外部配置优先级、双传输契约、能力过滤与安全边界。
+- `tests/test_arms.py`（9 个）、`tests/test_render.py`（9 个）、`tests/test_session.py`（8 个）。
+- 自检新增臂注册表门禁：未配置的 `browser` 不可用、裸 `browser` 被拒、`render` 不含 `shell=True`、三个能力点已接入。
+
+### 变更
+
+- `fetch` / `crawl` 新增 `--arms-file`、`--require`；`fetch` 新增 `--arms` 与 `--policy`；`canary` 新增 `--arms` / `--policy` / `--seed` / `--arms-file` / `--require` / `--impersonate`。
+- `crawl` 的护栏（pages / requests / 间隔 / 熔断）与输出字段不变；跳过臂保留在尝试序列末尾，不计请求预算。
+- `canary` 在整个 pass 序列固定一条臂，避免选臂差异污染翻转率。
+- `SKILL.md` 版本升到 1.14.0；`README.md`、`AGENTS.md`、`atoms.md`、`cli.md`、`toolbox.md`、`crawl.md` 同步。
+
+### 已知限制
+
+- 外部内核质量取决于适配器；仓库只校验契约，不保证渲染结果与真实浏览器一致。
+- 适配器不接收 Cookie、凭证、代理或出口参数；需要登录的路径仍走业务授权。
+- 未配置的外部臂只出现在尝试序列里，不会自动安装或回退到内置浏览器。
+
 ## [1.13.0] — 2026-11-02
 
 把“看到证据后该做什么”和“这套能力以什么形态交付”一起补齐：建议层只读、可校验、带停止条件，四种形态共用一份原子口径。

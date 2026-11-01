@@ -22,7 +22,8 @@
  18. 行为测试：tests/ 有可编译的用例，且已接入 CI
  19. 批量采集护栏：crawl 的预算 / 间隔 / 熔断常量受限，试验行不能混入证据行
  20. 离线推演：bandit 不发请求、同 seed 可复现，示例试验行口径正确
- 21. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 21. 臂注册表：外部臂按配置可用、未配置 browser 不可用、render 不经 shell
+ 22. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -62,6 +63,7 @@ REQUIRED = [
     "references/cli.md",
     "references/walkthrough.md",
     "references/atoms.md",
+    "references/arms.md",
     "references/crawl.md",
     "references/bandit.md",
     "references/agent.md",
@@ -100,6 +102,9 @@ REQUIRED = [
     "scripts/reconlib/policy.py",
     "scripts/reconlib/simulate.py",
     "scripts/reconlib/advice.py",
+    "scripts/reconlib/arms.py",
+    "scripts/reconlib/render.py",
+    "scripts/reconlib/session.py",
     "scripts/js-surface.py",
     "scripts/shape.py",
     "scripts/canary.py",
@@ -119,6 +124,9 @@ REQUIRED = [
     "tests/test_bandit.py",
     "tests/test_advice.py",
     "tests/test_advise.py",
+    "tests/test_arms.py",
+    "tests/test_render.py",
+    "tests/test_session.py",
 ]
 
 # 脱敏红线：命中即失败。这里只放公开可提的站点 / 厂商。
@@ -635,6 +643,7 @@ def check_atoms_contract():
 import sys
 sys.path.insert(0, "scripts")
 import stats
+import reconlib.arms, reconlib.render, reconlib.session
 from reconlib import measure
 from reconlib.classify import classify
 
@@ -666,6 +675,50 @@ assert ok["outcome"] in stats.VALID and limited["outcome"] in stats.VALID
     ok("原子层契约稳定（度量 / 归类 / outcome 词表），fetch-page 已复用")
 
 
+def check_arms_guard():
+    """臂注册表与外部内核是新的请求入口：未配置不能冒充可用，外部命令不能过 shell。"""
+    render = read("scripts/reconlib/render.py")
+    session = read("scripts/reconlib/session.py")
+    if "shell=True" in render:
+        fail("render 用了 shell=True（外部命令必须按 argv 传递）")
+        return
+    if "robots.decision" not in session or "fetch_observation" not in session:
+        fail("session 未先做 robots 再取样")
+        return
+    for p in ("scripts/crawl.py", "scripts/fetch-page.py"):
+        if "ArmSession" not in read(p):
+            fail(f"{p} 未接入 ArmSession")
+            return
+    if "choose_arm" not in read("scripts/canary.py"):
+        fail("canary 未固定单臂")
+        return
+    code = """
+import os, sys, tempfile
+sys.path.insert(0, "scripts")
+from reconlib import arms
+fd, path = tempfile.mkstemp(suffix=".json")
+os.close(fd)
+open(path, "w").write('{"arms": []}')
+r = arms.load(path)
+assert r.get("native").available()
+assert not r.get("browser:chromium").available()
+try:
+    r.get("browser")
+except ValueError:
+    pass
+else:
+    raise AssertionError("裸 browser 未被拒绝")
+os.unlink(path)
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("臂注册表契约异常: " + " | ".join(tail))
+        return
+    ok("臂注册表：外部臂按配置可用、未配置 browser 不可用、render 不经 shell")
+
+
 def check_crawl_guard():
     """批量采集是唯一会连发请求的入口：预算 / 间隔 / 熔断必须写在代码里，不靠口头约定。"""
     body = read("scripts/crawl.py")
@@ -680,9 +733,9 @@ def check_crawl_guard():
     delay = re.search(r"^DEFAULT_DELAY\s*=\s*(\d+(?:\.\d+)?)", body, re.M)
     if not delay or float(delay.group(1)) < 5:
         bad.append("DEFAULT_DELAY 过小（应 >=5s）")
-    lost = [m for m in ("pacing", "evidence", "policy") if m not in body]
+    lost = [m for m in ("session", "evidence", "policy") if m not in body]
     if lost:
-        bad.append(f"crawl 未复用原子: {', '.join(lost)}")
+        bad.append(f"crawl 未复用原子 / 编排层: {', '.join(lost)}")
 
     tmp = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8")
     try:
@@ -882,6 +935,7 @@ def main():
     check_shape_signals()
     check_stats_smoke()
     check_atoms_contract()
+    check_arms_guard()
     check_crawl_guard()
     check_bandit_smoke()
     check_advice_smoke()

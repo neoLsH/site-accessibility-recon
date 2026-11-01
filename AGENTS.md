@@ -44,6 +44,7 @@
 - 双指标与防虚高：[references/metrics.md](references/metrics.md)
 - 全部命令、选项、判据、退出码与基线阈值：[references/cli.md](references/cli.md)
 - 原子层（量测 / 归类 / robots / 取样 / 节奏 / 证据 / 选举）与扩展方式：[references/atoms.md](references/atoms.md)
+- 客户端臂注册表、外部内核契约与能力过滤：[references/arms.md](references/arms.md)
 - 批量采集（多臂选举 / 预算护栏 / 证据行与试验行）：[references/crawl.md](references/crawl.md)
 - 离线推演（给定胜率比较选举策略）：[references/bandit.md](references/bandit.md)
 - Agent / LLM 接口（`advise/1` 契约、动作优先级、提示骨架与护栏）：[references/agent.md](references/agent.md)
@@ -74,6 +75,7 @@ scripts/recon.py stats before.jsonl --compare after.jsonl        # 改前改后�
 scripts/fingerprint-probe.js                                    # 页面内指纹快照 + CDP 泄漏探针
 scripts/recon.py fp diff a.json b.json                          # 网络指纹快照 + 逐字段 diff
 scripts/recon.py fetch <url> --selector '#content'               # 客户端臂阶梯取内容 + WAF 归类（--rung 只跑一级）
+scripts/recon.py fetch <url> --arms browser:chromium --arms-file ~/.config/site-recon/arms.json  # 外部内核（仓库不内置）
 scripts/recon.py crawl --from urls.txt --selector '#content'     # 批量取内容：多臂选举 + 预算 / 熔断护栏
 scripts/recon.py bandit --arms native=0.4,cffi:chrome=0.75       # 离线推演选臂策略
 scripts/recon.py advise recon/<代号>/evidence.jsonl --json        # 证据行 → 下一步动作（只读，不执行）

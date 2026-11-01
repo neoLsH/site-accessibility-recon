@@ -10,10 +10,10 @@
 | `quick` | `quick-check.sh` | 每条 URL 值不值得继续测 | `--from` `--selector` `--min-content` `--delay` `--skip-robots` |
 | `shape` | `shape.py` | 这一份响应是什么形态 | `--html` `--signals` `--explain` `--save-html` `--min-content` |
 | `matrix` | `client-matrix.sh` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--save-html` `--delay` |
-| `canary` | `canary.py` | 是否概率门；改前改后是否回归 | `--selector` `--passes` `--delay` `--save` `--compare` |
+| `canary` | `canary.py` | 是否概率门；改前改后是否回归 | `--selector` `--passes` `--delay` `--save` `--compare` `--arms` `--policy` `--arms-file` |
 | `stats` | `stats.py` | 按路由拆分的双指标、区间与改前改后差值 | `--compare` `--min-den`；位置参数为 JSONL / canary 基线 JSON |
-| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--out-dir` |
-| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--policy` `--seed` `--evidence-out` `--trial-out` |
+| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--arms` `--arms-file` `--require` `--policy` `--out-dir` |
+| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--arms-file` `--require` `--policy` `--seed` `--evidence-out` `--trial-out` |
 | `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` `--pages` `--policies` `--seed` |
 | `advise` | `advise.py` | 证据行 → 下一步动作（只读，不执行） | `--route` `--json` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
@@ -122,20 +122,22 @@ recon stats recon/<代号>/evidence-before.jsonl --compare recon/<代号>/eviden
 
 ## 客户端臂阶梯
 
-`fetch` 默认按 `native → cffi` 逐级取内容；`--rung both|native|cffi` 可只跑一级（`--no-browser-stack` 仍是 `--rung native` 的别名）。
+`fetch` 默认按 `native → cffi` 逐级取内容；`--rung both|native|cffi` 可只跑一级（`--no-browser-stack` 仍是 `--rung native` 的别名）。`--arms` 可直接给臂列表（含 `browser:<engine>`），`--policy` 默认 `fixed` 按给定顺序；`--require js` 会硬过滤掉没有 JS 运行时的臂。
 
 - 每级记录 `http / bytes / 内容区 / final_url / outcome / attributable / rate_limited`。
 - 成功即停；`attributable: false` 的失败（限频、鉴权、内容不存在、链路噪声）也停——换栈救不了，先处理那个问题。
 - 只有可归因的 `blocked` / `degraded` 才继续试下一级；两级都拦且高阶成功时归为 `2 协议栈白名单`。
 - 度量与归类的口径由 `scripts/reconlib/` 原子层提供，见 [atoms.md](atoms.md)。
+- 外部浏览器内核不在仓库内。把适配器写进仓库外的 `arms.json`，用 `--arms-file` / `RECON_ARMS_FILE` / `~/.config/site-recon/arms.json` 接入；契约与安全边界见 [arms.md](arms.md)。未配置的臂以 `skipped` 出现且不计请求预算。
 
 ## 批量采集
 
-`crawl` 用多臂老虎机在客户端臂之间选举，按 host 学习胜率，并强制预算 / 节流 / 熔断：
+`crawl` 用 `ArmSession` 在客户端臂之间选举，按 host 学习胜率，并强制预算 / 节流 / 熔断：
 
 ```bash
 recon crawl --from urls.txt --selector '#content' \
     --arms native,cffi:chrome --policy thompson --seed 7 \
+    --arms-file ~/.config/site-recon/arms.json \
     --evidence-out recon/<代号>/evidence.jsonl --trial-out recon/<代号>/trials.jsonl
 ```
 

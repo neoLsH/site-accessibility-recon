@@ -20,6 +20,7 @@
 | 证据行 → 下一步动作 | `scripts/advise.py` | 自己凭感觉选下一步 | 只读、带停止条件，供 Agent / LLM 消费，见 [agent.md](agent.md) |
 | 复用量测 / 归类 / 取样 | `scripts/reconlib/` | 复制脚本片段 | 原子层只有一份口径，见 [atoms.md](atoms.md) |
 | 浏览器自动化 | 你的渲染服务 / Playwright | 直连 CDP | 优先复用已有渲染链路 |
+| 外部浏览器内核接入 | `reconlib/render.py` 的 `cmd` / `http` 适配 | 自己包一层 CLI | 仓库不内置内核；契约见 [arms.md](arms.md) |
 | 内容区度量 | `client-matrix.sh --selector` / `--html` | 浏览器 evaluate | 整页长度不可用 |
 | 可行性快筛 | `scripts/quick-check.sh` | 手工三步 | 有界：每 URL 1 次 + 每 origin 1 次 robots |
 | 结论报告 | `scripts/report.py` | 手写 | 从档案 + 证据表渲染 |
@@ -42,6 +43,8 @@ python3 -m pip install --user pyyaml
 ```
 
 先跑 `scripts/preflight.sh` 看本机缺什么、缺了会降级成什么。
+
+浏览器内核不是本仓库的依赖：把已有的渲染服务按 `arms.json` 的 `cmd` 或 `http` 契约接进来即可。仓库只校验 JSON、16 MiB 上限与错误归 `noise`，不替适配器背书；不向适配器传 Cookie、凭证、代理或出口参数。
 
 ## 版本与环境陷阱
 
