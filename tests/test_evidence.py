@@ -41,6 +41,15 @@ class EvidenceRowTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             evidence_row(obs(), cls(outcome="weird"))
 
+    def test_context_is_optional(self):
+        row = evidence_row(obs(), cls(), context="a.test|article|content")
+        self.assertEqual(row["context"], "a.test|article|content")
+        self.assertNotIn("context", evidence_row(obs(), cls()))
+        trial = trial_row("https://example.test/a", "native", cls(),
+                          context="a.test|article|content", cost_ms=42)
+        self.assertEqual(trial["context"], "a.test|article|content")
+        self.assertEqual(trial["cost_ms"], 42)
+
 
 class TrialRowTest(unittest.TestCase):
     def test_trial_does_not_carry_outcome(self):

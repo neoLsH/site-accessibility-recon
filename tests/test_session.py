@@ -106,6 +106,19 @@ class SessionTest(unittest.TestCase):
         self.assertEqual(page["requests"], 1)
         self.assertEqual(page["stopped"], "noise")
 
+    def test_context_and_cost_are_recorded(self):
+        routes = {"/article/1": lambda h: support.response(h, 200, support.long_html())}
+        with support.serve(routes) as base:
+            s = ArmSession(["native"], registry=empty_registry(),
+                           policy="fixed", delay=0, permission=True)
+            page = s.probe(base + "/article/1", selector="#content",
+                           min_content=200)
+        self.assertEqual(page["context"], "article|content")
+        full = f"{page['host']}|article|content"
+        self.assertEqual(s.trials[0]["context"], full)
+        self.assertIn("cost_ms", s.trials[0])
+        self.assertEqual(page["evidence"]["context"], full)
+
     def test_stop_on_ok_false_runs_all_arms(self):
         ok_script = (
             "import json,sys\n"

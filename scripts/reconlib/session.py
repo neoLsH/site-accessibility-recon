@@ -7,9 +7,10 @@
 
 from urllib.parse import urlsplit
 
-from . import UA_DEFAULT, evidence, fetch, measure, pacing, render, robots
+from . import (UA_DEFAULT, context as ctxmod, evidence, fetch, measure, pacing,
+               render, robots)
 from .classify import classify
-from .policy import ALGORITHMS, Bandit
+from .policy import ALGORITHMS, ContextualBandit
 
 RANK = {"ok": 3, "degraded": 2, "blocked": 1}
 
@@ -34,7 +35,8 @@ class ArmSession:
     def __init__(self, arm_names, registry=None, policy="thompson", seed=None,
                  min_pulls=1, delay=pacing.DEFAULT_DELAY, timeout=20,
                  ua=UA_DEFAULT, max_consecutive_blocked=3, save=None,
-                 require=(), permission=False, clock=None, sleep=None):
+                 require=(), permission=False, clock=None, sleep=None,
+                 cost_weight=0.1):
         from . import arms as armreg
         self.registry = registry or armreg.load()
         self.arms = [self.registry.get(name) for name in arm_names]
@@ -42,8 +44,9 @@ class ArmSession:
             raise ValueError("至少需要一个客户端臂")
         if policy not in ALGORITHMS:
             raise ValueError(f"未知策略 {policy!r}")
-        self.bandit = Bandit([a.name for a in self.arms], algorithm=policy,
-                             seed=seed, min_pulls=min_pulls)
+        self.bandit = ContextualBandit(
+            [a.name for a in self.arms], algorithm=policy, seed=seed,
+            min_pulls=min_pulls, cost_weight=cost_weight)
         kw = {"delay": delay,
               "max_consecutive_blocked": max_consecutive_blocked}
         if clock is not None:
@@ -62,14 +65,17 @@ class ArmSession:
         return self.bandit.snapshot(host)
 
     def probe(self, url, selector="", min_content=200, max_attempts=None,
-              require=None, permission=None, warn=None, stop_on_ok=True):
+              require=None, permission=None, warn=None, stop_on_ok=True,
+              keep_body=False):
         require = tuple(self.require if require is None else require)
         permission = self.permission if permission is None else permission
         host = host_of(url)
+        route = ctxmod.route_class(url)
+        ctx = f"{route}|unknown"
         page = {"url": url, "host": host, "tries": [], "evidence": None,
                 "stopped": None, "skipped": None, "halt": None,
                 "requests": 0, "robots": "skipped" if permission else None,
-                "last": None}
+                "last": None, "context": ctx, "contexts": []}
         if not permission:
             allowed = robots.decision(url, timeout=self.timeout, ua=self.ua)
             page["robots"] = allowed
@@ -107,7 +113,7 @@ class ArmSession:
                 page["halt"] = "budget"
                 page["stopped"] = "budget"
                 break
-            name = self.bandit.select(host, candidates)
+            name = self.bandit.select(host, ctx, candidates)
             arm = self.registry.get(name)
             self.pace.wait(host)
             obs = fetch_observation(url, arm, timeout=self.timeout, ua=self.ua)
@@ -123,17 +129,29 @@ class ArmSession:
                 candidates.remove(name)
                 continue
 
+            if keep_body:
+                page["observation"] = obs
+
             used += 1
             page["last"] = dict(verdict)
+            resp = ctxmod.response_class(verdict)
+            ctx = f"{route}|{resp}"
+            if ctx not in page["contexts"]:
+                page["contexts"].append(ctx)
+            page["context"] = ctx
+            elapsed = obs.get("elapsed_ms") or 0
             state = self.pace.observe(
                 host, verdict["outcome"], verdict["rate_limited"],
                 pacing.retry_after(obs.get("headers") or ""))
-            self.bandit.update_from_outcome(host, name, verdict["outcome"],
-                                            verdict["rate_limited"])
+            self.bandit.update_from_outcome(host, ctx, name,
+                                            verdict["outcome"],
+                                            elapsed_ms=elapsed,
+                                            rate_limited=verdict["rate_limited"])
             saved = self.save(url, name, obs.get("body") or b"") if self.save else None
             trial = evidence.trial_row(
                 url, name, verdict, attempt=used,
-                elapsed_ms=obs.get("elapsed_ms"))
+                elapsed_ms=obs.get("elapsed_ms"),
+                context=f"{host}|{ctx}", cost_ms=elapsed)
             if saved:
                 trial["saved"] = saved
             self.trials.append(trial)
@@ -147,7 +165,8 @@ class ArmSession:
                 "final": obs.get("final_url") or url,
             })
             obs["content"] = content
-            row = evidence.evidence_row(obs, verdict, route=evidence.route_of(url))
+            row = evidence.evidence_row(obs, verdict, route=evidence.route_of(url),
+                                        context=f"{host}|{ctx}")
             if page["evidence"] is None or RANK.get(row["outcome"], 0) > \
                     RANK.get(page["evidence"]["outcome"], 0):
                 page["evidence"] = row

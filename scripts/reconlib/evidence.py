@@ -17,13 +17,13 @@ def route_of(url):
     return urlsplit(str(url or "")).path or "/"
 
 
-def evidence_row(observation, classification, route=None):
+def evidence_row(observation, classification, route=None, context=None):
     outcome = classification.get("outcome")
     if outcome not in OUTCOMES:
         raise ValueError(f"outcome 非法 {outcome!r}，应为 {'/'.join(OUTCOMES)}")
     url = observation.get("final_url") or observation.get("url") or ""
     content = observation.get("content")
-    return {
+    row = {
         "route": route or route_of(url),
         "final_url": url,
         "arm": observation.get("arm") or "",
@@ -33,9 +33,13 @@ def evidence_row(observation, classification, route=None):
         "waf_no": int(classification.get("waf_no") or 0),
         "attributable": bool(classification.get("attributable")),
     }
+    if context:
+        row["context"] = context
+    return row
 
 
-def trial_row(url, arm, classification, attempt=1, elapsed_ms=None, route=None):
+def trial_row(url, arm, classification, attempt=1, elapsed_ms=None,
+              route=None, context=None, cost_ms=None):
     outcome = classification.get("outcome")
     if outcome not in TRIAL_OUTCOMES:
         raise ValueError(f"outcome 非法 {outcome!r}，应为 {'/'.join(TRIAL_OUTCOMES)}")
@@ -50,6 +54,10 @@ def trial_row(url, arm, classification, attempt=1, elapsed_ms=None, route=None):
     }
     if elapsed_ms is not None:
         row["elapsed_ms"] = int(elapsed_ms)
+    if context:
+        row["context"] = context
+    if cost_ms is not None:
+        row["cost_ms"] = int(cost_ms)
     return row
 
 
