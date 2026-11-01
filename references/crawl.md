@@ -25,7 +25,7 @@
 | `noise`（5xx / 链路） | 不更新 | 指数退避 | 该页结束 |
 | `blocked`（不可归因，未归类） | 不更新 | 计数 +1 | 该页结束 |
 
-`thompson` 是默认策略：每臂维护 Beta 后验，按采样值选臂，冷启动用 `--min-pulls` 各试一次。也可选 `ucb1`、`fixed`（按给定顺序）、`round_robin`；`--seed` 固定后 `thompson` 可复现。慢臂按 5000ms 归一化扣分，`--cost-weight` 默认 `0.1`，`0` 关闭。`--prior-strength` 默认 `4`，从相邻上下文借先验解决冷启动；`--half-life` 默认 `0`（不遗忘），站点规则漂移时再开。未配置或缺少 `--require` 能力的臂会记成 `skipped`，**不计请求预算、不触发熔断**，也不参与策略更新。
+`thompson` 是默认策略：每臂维护 Beta 后验，按采样值选臂，冷启动用 `--min-pulls` 各试一次。也可选 `ucb1`、`fixed`（按给定顺序）、`round_robin`；`--seed` 固定后 `thompson` 可复现。慢臂按 5000ms 归一化扣分，`--cost-weight` 默认 `0.1`，`0` 关闭。`--prior-strength` 默认 `4`，从相邻上下文借先验解决冷启动；`--half-life` 默认 `0`（不遗忘），站点规则漂移时再开。`--block-budget` 默认 `3`：同一 `host + 路由类 + 臂` 连续可归因 `blocked` 达阈值后，该臂本轮暂停；同一上下文所有候选臂都暂停时，该页记 `all-arms-suspended` 并停手，不再发请求。未配置或缺少 `--require` 能力的臂会记成 `skipped`，**不计请求预算、不触发熔断**，也不参与策略更新。
 
 ## 护栏（默认值即红线）
 
@@ -35,8 +35,9 @@
 | `--max-requests` | 150 | 不含 robots 的请求上限 |
 | `--delay` | 5s | 每 host 请求间隔；回环地址自动降为 0 |
 | 连续 blocked | 3 | 触发该 host 熔断，余下同 host URL 记为 `circuit-open` |
+| `--block-budget` | 3 | 同一 `host + 路由类 + 臂` 连续可归因 blocked 后暂停该臂；全暂停记 `all-arms-suspended` |
 
-熔断只封当前 host：其他 host 仍可在预算内继续。预算或熔断让运行提前结束时退出码为 1。
+熔断只封当前 host：其他 host 仍可在预算内继续。臂暂停只封一条路由上的一条臂，其他路由仍可用别的臂；`--block-budget 0` 关闭暂停。预算或熔断让运行提前结束时退出码为 1。
 
 ## 两种行，别混
 
@@ -53,7 +54,7 @@
 recon crawl --from urls.txt --selector '#content' \
     --arms native,cffi:chrome,browser:chromium --policy thompson --seed 7 \
     --arms-file ~/.config/site-recon/arms.json --cost-weight 0.1 \
-    --prior-strength 4 --half-life 0 \
+    --prior-strength 4 --half-life 0 --block-budget 3 \
     --evidence-out recon/demo/evidence.jsonl \
     --trial-out recon/demo/trials.jsonl \
     --policy-out recon/demo/policy.json
@@ -72,6 +73,7 @@ recon stats recon/demo/evidence.jsonl          # 跑完直接结算
 - 把 `crawl` 当“并发下载器”：它没有并发，只有节流与预算；并发会把限频信号变成假阳性。
 - 把试验行喂给 `stats`：分母会变成“尝试次数”，不是“页面数”。
 - 用 `crawl` 反复重试同一批被 blocked 的 URL：熔断后应换数据源或降级口径，而不是继续加请求。
+- 把 `--block-budget 0` 当“提高成功率”：关掉暂停只增加撞墙请求，不改变臂本身；要更多样本应调高阈值或在合规范围内换路由。
 - 在多个 host 之间共享一个策略：胜率会被平均掉，选臂失去意义。
 - 把策略档案当跨站通用配置：档案里带 host 与路由键，换目标要另存一份；恢复时未知臂会被忽略，但已知臂的旧胜率仍会被带进来。
 

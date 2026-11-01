@@ -53,7 +53,7 @@ def crawl(urls, args):
         ua=args.ua, max_consecutive_blocked=args.max_consecutive_blocked,
         save=save, require=require, permission=args.i_have_permission,
         cost_weight=args.cost_weight, prior_strength=args.prior_strength,
-        half_life=args.half_life)
+        half_life=args.half_life, block_budget=args.block_budget)
     policy_in = None
     if args.policy_in:
         policy_in = policy_store.restore(session.bandit, args.policy_in)
@@ -106,9 +106,12 @@ def crawl(urls, args):
         "skipped_robots": sum(1 for p in pages if p.get("skipped") == "robots-deny"),
         "circuit_open": sum(1 for p in pages
                             if str(p.get("skipped", "")).startswith("circuit-open")),
+        "suspended_pages": sum(1 for p in pages
+                               if p.get("halt") == "all-arms-suspended"),
         "outcomes": outcomes,
         "stopped": stopped,
         "policy": args.policy,
+        "block_budget": args.block_budget,
         "arms": arm_list,
         "seed": args.seed,
         "policy_in": policy_in,
@@ -139,6 +142,9 @@ def print_table(result, args):
           f"{summary['requested']}，策略 {summary['policy']}，"
           f"臂 {','.join(summary['arms'])}")
     print(f"结局: " + " ".join(f"{k}={v}" for k, v in summary["outcomes"].items() if v))
+    if summary.get("suspended_pages"):
+        print(f"暂停页: {summary['suspended_pages']}（该路由候选臂连续 blocked，"
+              f"本轮已暂停）")
     if args.evidence_out:
         print(f"证据行 -> {args.evidence_out}")
     if args.trial_out:
@@ -169,6 +175,8 @@ def main():
                     help="分层先验伪计数，默认 4；0 关闭")
     ap.add_argument("--half-life", type=float, default=0.0,
                     help="按更新次数指数遗忘的半衰期，默认 0（不遗忘）")
+    ap.add_argument("--block-budget", type=int, default=3,
+                    help="同一路由连续 blocked 几次暂停该臂，默认 3；0 关闭")
     ap.add_argument("--policy-in", help="读取上一轮策略档案（recon-policy/1）")
     ap.add_argument("--policy-out", help="把本轮后验写到该路径，供下一轮热启动")
     ap.add_argument("--max-pages", type=int, default=MAX_PAGES,
@@ -200,6 +208,8 @@ def main():
         ap.error("--prior-strength 不能为负")
     if args.half_life < 0:
         ap.error("--half-life 不能为负")
+    if args.block_budget < 0:
+        ap.error("--block-budget 不能为负")
     from reconlib import arms as armreg
     try:
         registry = armreg.load(args.arms_file)

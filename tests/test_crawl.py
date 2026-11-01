@@ -48,6 +48,20 @@ class CrawlTest(unittest.TestCase):
         self.assertTrue(page["tries"][0]["rate_limited"])
         self.assertEqual(len(page["tries"]), 1)
 
+    def test_suspended_route_halts_without_extra_requests(self):
+        routes = {"/wall": lambda h: support.response(h, 403, "Forbidden")}
+        with support.serve(routes) as base:
+            r, data = support.run_json(
+                "crawl", base + "/wall", base + "/wall", *BASE,
+                "--block-budget", "1", "--max-consecutive-blocked", "5")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        pages = pages_of(data)
+        self.assertEqual(pages[0]["evidence"]["outcome"], "blocked")
+        self.assertEqual(pages[1]["halt"], "all-arms-suspended")
+        self.assertEqual(data["summary"]["requests"], 1)
+        self.assertEqual(data["summary"]["suspended_pages"], 1)
+        self.assertEqual(data["summary"]["block_budget"], 1)
+
     def test_robots_deny_skips_request(self):
         hits = {"n": 0}
 

@@ -14,6 +14,11 @@ host|*|* → * 回退聚合。
 分层先验把“别的路由 / 别的响应类”的经验当作伪计数，样本少的格不再从均匀先验
 重新摸索；half_life 按更新次数指数遗忘，风控变化后旧结论会自然退场。快照额外给出
 P(best)、置信区间与 exploit / explore 判定，供上游决定“继续用”还是“补样本”。
+
+block_budget > 0 时开启安全探索：同一 host + 路由类下连续可归因 blocked 达阈值后，
+该臂在本轮剩余请求里暂停；select 在所有候选臂都暂停时返回 None，快照 decision 记为
+halt。暂停只作用于 thompson / ucb1，fixed / round_robin 是显式穷举模式，不做裁剪。
+暂停状态只在内存里，不写进策略档案：下一轮重新评估，但 blocked 计数仍留在后验里。
 """
 
 import hashlib
@@ -114,7 +119,7 @@ class ContextualBandit:
 
     def __init__(self, arms, algorithm="thompson", seed=None, min_pulls=1,
                  ucb_c=1.414, cost_weight=0.1, cost_cap_ms=5000,
-                 prior_strength=4.0, half_life=0.0):
+                 prior_strength=4.0, half_life=0.0, block_budget=0):
         self.arms = tuple(dict.fromkeys(arms))
         if not self.arms:
             raise ValueError("至少需要一个客户端臂")
@@ -127,9 +132,12 @@ class ContextualBandit:
         self.cost_cap_ms = max(1.0, float(cost_cap_ms))
         self.prior_strength = max(0.0, float(prior_strength))
         self.half_life = max(0.0, float(half_life))
+        self.block_budget = max(0, int(block_budget))
         self._rng = random.Random(seed)
         self._state = {}
         self._level = {}
+        self._streak = {}
+        self._suspended = set()
 
     # ---- 状态 -------------------------------------------------------------
     @staticmethod
@@ -256,6 +264,52 @@ class ContextualBandit:
         route, _, response = str(context).partition("|")
         return route or "other", response or "unknown"
 
+    # ---- 安全探索 ---------------------------------------------------------
+    @staticmethod
+    def _route_of(context):
+        return str(context).partition("|")[0] or "other"
+
+    def _risk_active(self):
+        return self.block_budget > 0 and self.algorithm in ("thompson", "ucb1")
+
+    def _risk_key(self, host, context, arm):
+        return (host, self._route_of(context), arm)
+
+    def _is_suspended(self, host, context, arm):
+        return self._risk_key(host, context, arm) in self._suspended
+
+    def _observe_risk(self, host, context, arm, outcome):
+        if not self._risk_active():
+            return
+        key = self._risk_key(host, context, arm)
+        if outcome == "blocked":
+            streak = self._streak.get(key, 0) + 1
+            self._streak[key] = streak
+            if streak >= self.block_budget:
+                self._suspended.add(key)
+        elif outcome in ("ok", "degraded"):
+            self._streak[key] = 0
+
+    def suspended_arms(self, host, context):
+        route = self._route_of(context)
+        return [a for a in self.arms
+                if (host, route, a) in self._suspended]
+
+    def _risk_view(self, host, context):
+        route = None if context is None else self._route_of(context)
+        view = {}
+        for arm in self.arms:
+            if route is None:
+                keys = [k for k in self._suspended if k[0] == host and k[2] == arm]
+                streaks = [v for k, v in self._streak.items()
+                           if k[0] == host and k[2] == arm]
+                view[arm] = (bool(keys), max(streaks or [0]))
+            else:
+                key = (host, route, arm)
+                view[arm] = (key in self._suspended,
+                             int(self._streak.get(key, 0)))
+        return view
+
     def select(self, host, context, candidates=None):
         arms = [a for a in (candidates or self.arms) if a in self.arms]
         if not arms:
@@ -271,6 +325,11 @@ class ContextualBandit:
             state["rr"] = (state["rr"] + 1) % len(arms)
             self._level[full] = full
             return arm
+
+        if self._risk_active():
+            arms = [a for a in arms if not self._is_suspended(host, context, a)]
+            if not arms:
+                return None
 
         level, local = self._level_stats(host, f"{route}|{response}", arms)
         self._level[full] = level
@@ -313,6 +372,7 @@ class ContextualBandit:
         stat[2] += 1.0 - reward
         stat[3] += min(self.cost_cap_ms, max(0.0, float(cost_ms or 0)))
         stat[4] += 1
+        self._observe_risk(host, context, arm, outcome)
         return True
 
     def update_from_outcome(self, host, context, arm, outcome, elapsed_ms=0,
@@ -361,11 +421,18 @@ class ContextualBandit:
         return {"best_arm": best_arm, "confidence": confidence,
                 "decision": decision, "p_best": p_best, "utility": utility}
 
-    def _rows(self, candidates, local, eff, diag):
+    def _halt_diag(self, eff, arms):
+        return {"best_arm": None, "confidence": 0.0, "decision": "halt",
+                "p_best": {},
+                "utility": {a: self._mean(eff[a]) - self._penalty(eff[a])
+                            for a in arms}}
+
+    def _rows(self, candidates, local, eff, diag, risk):
         rows = []
         for arm in candidates:
             stat = local[arm]
             est = eff[arm]
+            suspended, streak = risk.get(arm, (False, 0))
             rows.append({
                 "arm": arm,
                 "pulls": round(stat[0], 3),
@@ -375,9 +442,12 @@ class ContextualBandit:
                 "cost_ms": round(stat[3] / stat[4]) if stat[4] else None,
                 "posterior_mean": round(self._mean(est), 3),
                 "n_eff": round(est[0], 2),
-                "utility": round(diag["utility"][arm], 3),
+                "utility": round(diag["utility"].get(
+                    arm, self._mean(est) - self._penalty(est)), 3),
                 "ci95": self._wilson(est[1], est[0]),
-                "p_best": diag["p_best"][arm],
+                "p_best": diag["p_best"].get(arm, 0.0),
+                "suspended": bool(suspended),
+                "block_streak": int(streak),
             })
         return rows
 
@@ -389,28 +459,38 @@ class ContextualBandit:
             local = self._aggregate(full, arms)
             level, _ = self._level_stats(host, f"{route}|{response}", arms)
             eff = self._effective(level, host, route, response, arms)
-            diag = self._diagnostics(eff, arms, full)
+            risk = self._risk_view(host, context)
+            available = [a for a in arms if not risk[a][0]]
+            diag = (self._diagnostics(eff, available, full) if available
+                    else self._halt_diag(eff, arms))
             return {"host": host, "context": context, "algorithm": self.algorithm,
                     "level": level, "prior_strength": self.prior_strength,
                     "half_life": self.half_life,
+                    "block_budget": self.block_budget,
+                    "suspended_arms": [a for a in arms if risk[a][0]],
                     "min_effective_pulls": EXPLOIT_MIN_PULLS,
                     "best_arm": diag["best_arm"],
                     "confidence": diag["confidence"],
                     "decision": diag["decision"],
-                    "arms": self._rows(arms, local, eff, diag)}
+                    "arms": self._rows(arms, local, eff, diag, risk)}
         full = f"{host}|*|*"
         local = self._aggregate(full, arms)
         level, _ = self._level_stats(host, "*|*", arms)
         eff = self._effective(level, host, "*", "*", arms)
-        diag = self._diagnostics(eff, arms, full)
+        risk = self._risk_view(host, None)
+        available = [a for a in arms if not risk[a][0]]
+        diag = (self._diagnostics(eff, available, full) if available
+                else self._halt_diag(eff, arms))
         return {"host": host, "algorithm": self.algorithm, "level": level,
                 "prior_strength": self.prior_strength,
                 "half_life": self.half_life,
+                "block_budget": self.block_budget,
+                "suspended_arms": [a for a in arms if risk[a][0]],
                 "min_effective_pulls": EXPLOIT_MIN_PULLS,
                 "best_arm": diag["best_arm"],
                 "confidence": diag["confidence"],
                 "decision": diag["decision"],
-                "arms": self._rows(arms, local, eff, diag),
+                "arms": self._rows(arms, local, eff, diag, risk),
                 "contexts": sum(1 for k in self._state
                                 if ctxmod.split(k)[0] == host)}
 

@@ -61,6 +61,25 @@ class ReplayTest(unittest.TestCase):
         _, pages, _ = explore.replay(rows)
         self.assertEqual(pages["h.example|article|challenge"], 2)
 
+    def test_replay_models_suspension(self):
+        rows = [trial("native", "blocked"), trial("native", "blocked"),
+                trial("cffi:chrome", "ok")]
+        bandit, pages, observed = explore.replay(rows, block_budget=2)
+        snap = bandit.snapshot("h.example", "article|challenge")
+        row = next(r for r in snap["arms"] if r["arm"] == "native")
+        self.assertTrue(row["suspended"])
+        body = explore.plan(bandit, pages, observed, budget=5)
+        self.assertNotIn("native", {s["arm"] for s in body["steps"]})
+        self.assertEqual(body["block_budget"], 2)
+
+    def test_replay_suspension_can_be_disabled(self):
+        rows = [trial("native", "blocked"), trial("native", "blocked"),
+                trial("cffi:chrome", "ok")]
+        bandit, _, _ = explore.replay(rows, block_budget=0)
+        snap = bandit.snapshot("h.example", "article|challenge")
+        row = next(r for r in snap["arms"] if r["arm"] == "native")
+        self.assertFalse(row["suspended"])
+
     def test_no_usable_rows(self):
         with self.assertRaises(ValueError):
             explore.replay([trial("native", "noise")])
@@ -122,6 +141,18 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(body["hold"][0]["context"], "h.example|article|content")
         self.assertEqual(body["hold"][0]["arm"], "native")
 
+    def test_all_suspended_context_goes_to_hold(self):
+        b = policy.ContextualBandit(["native"], seed=3, min_pulls=1,
+                                    block_budget=1)
+        b.update("h.example", "article|challenge", "native", "blocked")
+        body = explore.plan(b, {"h.example|article|challenge": 1},
+                            {"attempts": 1, "successes": 0}, budget=5)
+        self.assertEqual(body["steps"], [])
+        self.assertEqual(body["hold"][0]["arm"], None)
+        self.assertIn("暂停", body["hold"][0]["why"])
+        self.assertEqual(body["summary"]["suspended_contexts"], 1)
+        self.assertTrue(any("暂停" in s for s in body["stop"]))
+
     def test_deterministic(self):
         b = self.bandit()
         pages = {"h.example|article|challenge": 10}
@@ -176,6 +207,28 @@ class ExploreCliTest(unittest.TestCase):
                         "--budget", "0")
         self.assertEqual(r.returncode, 2)
         self.assertIn("budget", r.stderr)
+
+    def test_block_budget_is_usage_error_when_negative(self):
+        r = support.run("explore", "--trials",
+                        os.path.join(support.ROOT, "assets", "example", "trials.jsonl"),
+                        "--block-budget", "-1")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("block-budget", r.stderr)
+
+    def test_trials_suspension_excludes_arm_from_steps(self):
+        rows = [trial("native", "blocked"), trial("native", "blocked"),
+                trial("cffi:chrome", "ok"), trial("cffi:firefox", "ok")]
+        path = support.write_temp(
+            "\n".join(json.dumps(r) for r in rows) + "\n", ".jsonl")
+        try:
+            r, data = support.run_json(
+                "explore", "--trials", path, "--arms", "native,cffi:chrome",
+                "--block-budget", "2", "--budget", "5", "--json")
+        finally:
+            os.unlink(path)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(data["block_budget"], 2)
+        self.assertNotIn("native", {s["arm"] for s in data["steps"]})
 
     def test_no_usable_rows_is_usage_error(self):
         path = support.write_temp(json.dumps(trial("native", "noise")) + "\n", ".jsonl")

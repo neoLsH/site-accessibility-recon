@@ -1,11 +1,11 @@
 ---
 name: site-accessibility-recon
-description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：识别页面形态（静态 / CSR 空壳 / 挑战页 / 登录墙 / 业务空态），区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，用多 pass 翻转率区分确定性闸门与概率门，遇 WAF 先按机制归类再选合规路径；在合规客户端臂之间按上下文与成本做 MAB 选臂，用分层先验与遗忘窗口处理冷启动和规则漂移，策略档案支持跨轮热启动，只读探索规划把后验变成下一批请求预算，档案经 lint 后推导执行计划，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标（按路由拆分 + Wilson 区间）验证对策，改前改后按路由出差值与 Newcombe 区间、样本不足不判方向，用基线对比防回归。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，页面形态识别，概率门与翻转率，多内核选臂，上下文成本 MAB，分层先验，策略热启动与跨轮策略档案，探索预算分配与未见臂探测，双指标结算与回归基线，可行性快筛，bot defense triage，scrape reliability。
+description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：识别页面形态（静态 / CSR 空壳 / 挑战页 / 登录墙 / 业务空态），区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，用多 pass 翻转率区分确定性闸门与概率门，遇 WAF 先按机制归类再选合规路径；在合规客户端臂之间按上下文与成本做 MAB 选臂，用分层先验与遗忘窗口处理冷启动和规则漂移，策略档案支持跨轮热启动，只读探索规划把后验变成下一批请求预算，连续可归因 blocked 会按 host + 路由暂停单臂（全部暂停即 halt），档案经 lint 后推导执行计划，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标（按路由拆分 + Wilson 区间）验证对策，改前改后按路由出差值与 Newcombe 区间、样本不足不判方向，用基线对比防回归。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，页面形态识别，概率门与翻转率，多内核选臂，上下文成本 MAB，分层先验，策略热启动与跨轮策略档案，探索预算分配与未见臂探测，安全探索与连续 blocked 暂停单臂，双指标结算与回归基线，可行性快筛，bot defense triage，scrape reliability。
 license: MIT
 compatibility: 需要 python3 与 curl；建议另装 curl_cffi 做浏览器级 TLS 指纹仿真。要让脚本真正联网，还需要能出网的出口；断网时自动降级为离线复核（只分析已留存的 HTML 与快照）。
 allowed-tools: Bash, Read, Write, Edit, WebFetch, Task
 metadata:
-  version: 1.17.0
+  version: 1.18.0
   scope: diagnostics
 ---
 
@@ -95,7 +95,7 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 | 扩展脚本、复用量测 / 归类 / 取样能力 | [references/atoms.md](references/atoms.md) |
 | 批量取内容、多臂选臂、控预算与熔断 | [references/crawl.md](references/crawl.md) |
 | 配外部浏览器内核、臂命名、能力过滤与安全边界 | [references/arms.md](references/arms.md) |
-| 选臂上下文、奖励与成本、各能力点的选臂语义 | [references/strategy.md](references/strategy.md) |
+| 选臂上下文、奖励与成本、安全探索、各能力点的选臂语义 | [references/strategy.md](references/strategy.md) |
 | 离线推演换策略值不值；把后验变成下一批探测、预算怎么分 | [references/bandit.md](references/bandit.md) · [references/explore.md](references/explore.md) |
 | 四种形态怎么分工（Skill / CLI / Agent / LLM） | [references/forms.md](references/forms.md) |
 | 接 Agent / LLM：证据行 → 下一步动作（契约、提示骨架、护栏） | [references/agent.md](references/agent.md) |

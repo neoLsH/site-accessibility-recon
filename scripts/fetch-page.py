@@ -152,6 +152,8 @@ def main():
                     help="分层先验伪计数，默认 4；0 关闭")
     ap.add_argument("--half-life", type=float, default=0.0,
                     help="按更新次数指数遗忘的半衰期，默认 0（不遗忘）")
+    ap.add_argument("--block-budget", type=int, default=3,
+                    help="同一路由连续 blocked 几次暂停该臂，默认 3；0 关闭")
     ap.add_argument("--policy-in", help="读取上一轮策略档案（recon-policy/1）")
     ap.add_argument("--policy-out", help="把本轮后验写到该路径，供下一轮热启动")
     ap.add_argument("--timeout", type=int, default=20)
@@ -182,6 +184,8 @@ def main():
         ap.error("--prior-strength 不能为负")
     if args.half_life < 0:
         ap.error("--half-life 不能为负")
+    if args.block_budget < 0:
+        ap.error("--block-budget 不能为负")
 
     try:
         registry = armreg.load(args.arms_file)
@@ -196,7 +200,8 @@ def main():
         arm_list, registry=registry, policy=args.policy, delay=0.0,
         timeout=args.timeout, ua=args.ua, save=save, require=require,
         permission=args.i_have_permission, cost_weight=args.cost_weight,
-        prior_strength=args.prior_strength, half_life=args.half_life)
+        prior_strength=args.prior_strength, half_life=args.half_life,
+        block_budget=args.block_budget)
     if args.policy_in:
         try:
             policy_store.restore(session.bandit, args.policy_in)

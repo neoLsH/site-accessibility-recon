@@ -67,7 +67,7 @@ def _usable(row):
 
 
 def replay(rows, arms=(), prior_strength=4.0, half_life=0.0, cost_weight=0.1,
-           min_pulls=1, seed=7):
+           min_pulls=1, seed=7, block_budget=3):
     """把试验行按原顺序回放进 ContextualBandit，返回 (bandit, pages, observed)。"""
     kept = [r for r in (rows or []) if _usable(r)]
     if not kept:
@@ -79,7 +79,8 @@ def replay(rows, arms=(), prior_strength=4.0, half_life=0.0, cost_weight=0.1,
     order = list(dict.fromkeys(list(arms) + seen))
     bandit = ContextualBandit(
         order, seed=seed, min_pulls=min_pulls, cost_weight=cost_weight,
-        prior_strength=prior_strength, half_life=half_life)
+        prior_strength=prior_strength, half_life=half_life,
+        block_budget=block_budget)
     urls = {}
     derived = 0
     successes = 0
@@ -108,7 +109,7 @@ def replay(rows, arms=(), prior_strength=4.0, half_life=0.0, cost_weight=0.1,
     return bandit, pages, observed
 
 
-def from_policy(body, extra_arms=()):
+def from_policy(body, extra_arms=(), block_budget=0):
     """从策略档案恢复后验；返回 (bandit, pages, observed)。"""
     if not isinstance(body, dict):
         raise ValueError("策略档案必须是对象")
@@ -126,7 +127,7 @@ def from_policy(body, extra_arms=()):
         order, algorithm=body.get("algorithm", "thompson"),
         seed=7, cost_weight=body.get("cost_weight", 0.1),
         prior_strength=body.get("prior_strength", 4.0),
-        half_life=body.get("half_life", 0.0))
+        half_life=body.get("half_life", 0.0), block_budget=block_budget)
     bandit.import_state(state)
     pages = {}
     attempts = successes = 0
@@ -154,8 +155,16 @@ def _arm_rank(rows, arm):
 
 
 def _context_plan(key, snap, target_pulls, max_per_context):
-    """单个上下文的动作：未见 → 补样本 → 探索 → hold。"""
-    rows = snap["arms"]
+    """单个上下文的动作：未见 → 补样本 → 探索 → hold / 暂停。"""
+    rows = [r for r in snap["arms"] if not r.get("suspended")]
+    if not rows:
+        return [], {
+            "context": key,
+            "arm": None,
+            "confidence": 0.0,
+            "why": ("该路由下所有候选臂连续 blocked，本轮已暂停；"
+                    "先停手核查 robots / 限速 / 出口，再决定是否继续"),
+        }
     actions = [{
         "context": key, "arm": r["arm"], "kind": "unseen",
         "want": max(1, min(target_pulls, max_per_context)), "weight": 1.0,
@@ -250,6 +259,7 @@ def plan(bandit, pages, observed, budget=30, max_per_context=6,
             "pages": pages_n, "level": snap["level"],
             "best_arm": snap["best_arm"], "confidence": snap["confidence"],
             "decision": snap["decision"], "arms": snap["arms"],
+            "suspended_arms": snap["suspended_arms"],
         }
         contexts.append(ctx)
         found, held = _context_plan(key, snap, target_pulls, max_per_context)
@@ -291,6 +301,10 @@ def plan(bandit, pages, observed, budget=30, max_per_context=6,
         "连续 blocked 达 3 的 host 由 crawl 熔断；explore 不绕过节流与 robots",
         "新臂只在有权限、robots 允许的路由上试，且一次只改一个变量",
     ]
+    suspended_contexts = sum(1 for c in contexts if c["decision"] == "halt")
+    if suspended_contexts:
+        stop.insert(0, (f"{suspended_contexts} 个上下文的所有候选臂已暂停：停止在这些路由上"
+                        "继续试请求，先核查限速、robots 与链路，下一轮再评估"))
     if all(c["decision"] == "exploit" for c in contexts) and not actions:
         stop.insert(0, "全部上下文已判 exploit：停止加探测，改用 canary 做防回归")
 
@@ -298,6 +312,7 @@ def plan(bandit, pages, observed, budget=30, max_per_context=6,
         "contexts": len(contexts),
         "explore_contexts": sum(1 for c in contexts if c["decision"] != "exploit"),
         "exploit_contexts": sum(1 for c in contexts if c["decision"] == "exploit"),
+        "suspended_contexts": suspended_contexts,
         "steps": len(steps),
         "unseen_arms": unseen,
     }
@@ -307,6 +322,7 @@ def plan(bandit, pages, observed, budget=30, max_per_context=6,
         "budget": budget,
         "allocated": allocated,
         "remaining": budget - allocated,
+        "block_budget": bandit.block_budget,
         "arms": all_arms,
         "contexts": contexts,
         "unseen_arms": unseen,

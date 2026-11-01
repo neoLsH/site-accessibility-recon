@@ -158,6 +158,8 @@ def build_parser():
                     help="同 host 邻近上下文的先验强度，默认 4.0；0 关闭")
     ap.add_argument("--half-life", type=float, default=0.0,
                     help="指数遗忘半衰期（样本数），默认 0 = 不遗忘")
+    ap.add_argument("--block-budget", type=int, default=3,
+                    help="同一路由连续 blocked 几次暂停该臂，默认 3；0 关闭；fixed 模式不生效")
     ap.add_argument("--policy-in", help="热启动：读取策略档案（recon-policy/1）")
     ap.add_argument("--policy-out", help="本轮结束后把策略后验写到该路径")
     ap.add_argument("--timeout", type=int, default=20, help="单请求超时，默认 20s")
@@ -200,6 +202,8 @@ def main(argv=None):
         ap.error("--prior-strength 不能为负")
     if args.half_life < 0:
         ap.error("--half-life 不能为负")
+    if args.block_budget < 0:
+        ap.error("--block-budget 不能为负")
 
     registry, arm_list = _arm_list(args, ap)
     try:
@@ -224,7 +228,7 @@ def main(argv=None):
         delay=args.delay, timeout=args.timeout, ua=args.ua,
         permission=args.i_have_permission, require=require, save=save,
         cost_weight=args.cost_weight, prior_strength=args.prior_strength,
-        half_life=args.half_life)
+        half_life=args.half_life, block_budget=args.block_budget)
     if args.policy_in:
         try:
             policy_store.restore(session.bandit, args.policy_in)

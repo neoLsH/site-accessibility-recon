@@ -21,7 +21,7 @@
 | `pacing` | 现在能不能发、下次等多久、何时熔断 | `Pacing.wait/observe` · `retry_after` · `default_delay` | 只睡，不发请求 |
 | `evidence` | 这页记成什么行 | `evidence_row` · `trial_row` · `write_jsonl` | 写文件（调用方给路径） |
 | `context` | 这次响应属于哪类页面 | `route_class` · `response_class` · `key` · `fallbacks` | 无 |
-| `policy` | 下一步该用哪条臂 | `Bandit` / `ContextualBandit.select/update/snapshot` | 无（内存态） |
+| `policy` | 下一步该用哪条臂；连续 blocked 是否暂停 | `Bandit` / `ContextualBandit.select/update/snapshot/suspended_arms` | 无（内存态） |
 | `policy_store` | 后验怎么跨轮复用 | `dump` · `load` · `restore` · `context_rates` | 写 / 读仓库外档案（原子写） |
 | `simulate` | 这个胜率下换策略值不值 | `parse_rates` · `rates_from_trials` · `simulate` · `simulate_contexts` | 无（纯离线） |
 | `explore` | 下一批请求该花在哪 | `replay` · `from_policy` · `plan` · `parse_arms` | 无（只读） |
@@ -29,7 +29,7 @@
 
 `measure` 只量选择器命中的容器，并跳过 `script` / `style`；整页字节会把导航和页脚算进来，是最常见的指标虚高来源。`content_len` 的返回可能是数字，也可能是 `missing` / `?unsupported` / `-`，调用方不要假定一定是整数。
 
-`context` 只从 URL 路径与首次结局取键（`host|路由类|响应类`），不读站点常量；它只决定“选臂读哪份统计”，不改写结局。`pacing` 的时钟与 sleep 可注入，测试不真的等待；`policy` 的随机种子可复现。这些都不联网，可单测。`policy_store` 只做原子写与结构校验，不联网、不选臂；档案里只有计数，`context_rates` 把它转成 `--rates-json` 同构的输入。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。`explore` 只消费试验行或策略档案，把后验转成带预算的探测计划，不联网、不发请求；规划顺序见 [explore.md](explore.md)。`advice` 只消费证据行，输出动作与停止条件，不执行命令；契约见 [agent.md](agent.md)。
+`context` 只从 URL 路径与首次结局取键（`host|路由类|响应类`），不读站点常量；它只决定“选臂读哪份统计”，不改写结局。`pacing` 的时钟与 sleep 可注入，测试不真的等待；`policy` 的随机种子可复现；它的暂停表只存在内存里（`block_budget` 默认 `3`，`0` 关闭），`select` 在候选臂全暂停时返回 `None`，快照记 `halt`，不会写进策略档案。这些都不联网，可单测。`policy_store` 只做原子写与结构校验，不联网、不选臂；档案里只有计数，`context_rates` 把它转成 `--rates-json` 同构的输入。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。`explore` 只消费试验行或策略档案，把后验转成带预算的探测计划，不联网、不发请求；规划顺序见 [explore.md](explore.md)。`advice` 只消费证据行，输出动作与停止条件，不执行命令；契约见 [agent.md](agent.md)。
 
 ## 观测与归类契约
 

@@ -26,7 +26,8 @@
  22. 策略上下文：上下文键 / 回退链稳定，quick/matrix 薄壳转调 Python，bandit 支持分组推演
  23. 策略记忆：分层先验 / 遗忘 / 诊断 / 档案往返，四个采集入口与 bandit 全部接入
  24. 探索规划：explore 只读、预算封顶、同输入可复现，且 recon 入口已接入
- 25. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 25. 安全探索：连续 blocked 暂停单臂、全暂停返回 halt、fixed 不受影响，CLI 已接入
+ 26. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -141,6 +142,7 @@ REQUIRED = [
     "tests/test_policy_context.py",
     "tests/test_policy_prior.py",
     "tests/test_policy_store.py",
+    "tests/test_policy_safety.py",
     "tests/test_quick.py",
     "tests/test_matrix.py",
     "tests/test_explore.py",
@@ -859,6 +861,73 @@ finally:
     ok("策略记忆：先验 / 遗忘 / 诊断 / 档案往返成立，四入口与 bandit 已接入")
 
 
+def check_safe_exploration():
+    """安全探索是策略层的护栏：连续 blocked 只暂停该臂，不扩大探测面。"""
+    code = """
+import sys
+sys.path.insert(0, "scripts")
+from reconlib import explore, policy
+
+b = policy.ContextualBandit(["native", "cffi:chrome"], algorithm="ucb1",
+                            min_pulls=1, prior_strength=0.0, block_budget=2)
+for _ in range(2):
+    b.update("h", "article|challenge", "native", "blocked")
+snap = b.snapshot("h", "article|challenge")
+row = next(r for r in snap["arms"] if r["arm"] == "native")
+assert row["suspended"] and row["block_streak"] == 2, row
+assert b.select("h", "article|challenge") == "cffi:chrome"
+assert b.snapshot("h", "list|content")["suspended_arms"] == [], "暂停不应跨路由"
+
+for _ in range(2):
+    b.update("h", "article|challenge", "cffi:chrome", "blocked")
+halt = b.snapshot("h", "article|challenge")
+assert halt["decision"] == "halt" and halt["best_arm"] is None, halt
+assert b.select("h", "article|challenge") is None
+assert halt["suspended_arms"] == ["native", "cffi:chrome"], halt["suspended_arms"]
+
+fixed = policy.ContextualBandit(["native", "cffi:chrome"], algorithm="fixed",
+                                block_budget=2)
+for _ in range(2):
+    fixed.update("h", "article|challenge", "native", "blocked")
+assert fixed.select("h", "article|challenge") == "native"
+assert fixed.snapshot("h", "article|challenge")["suspended_arms"] == []
+
+stat = b.export_state()["h|article|challenge"]["arms"]["native"]
+assert len(stat) == policy.STAT_LEN, "暂停状态不应写进策略档案"
+
+rows = [
+    {"kind": "trial", "arm": "native", "trial_outcome": "blocked",
+     "rate_limited": False, "context": "h|article|challenge"},
+    {"kind": "trial", "arm": "native", "trial_outcome": "blocked",
+     "rate_limited": False, "context": "h|article|challenge"},
+    {"kind": "trial", "arm": "cffi:chrome", "trial_outcome": "ok",
+     "rate_limited": False, "context": "h|article|challenge"},
+]
+bandit, pages, observed = explore.replay(rows, block_budget=2)
+body = explore.plan(bandit, pages, observed, budget=3)
+assert "native" not in {s["arm"] for s in body["steps"]}, body["steps"]
+assert body["block_budget"] == 2, body["block_budget"]
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("安全探索契约异常: " + " | ".join(tail))
+        return
+
+    for p in ("scripts/crawl.py", "scripts/fetch-page.py", "scripts/quick.py",
+              "scripts/matrix.py", "scripts/explore.py"):
+        if "--block-budget" not in read(p):
+            fail(f"{p} 缺少 --block-budget")
+            return
+    session = read("scripts/reconlib/session.py")
+    for needle in ("block_budget=3", "all-arms-suspended"):
+        if needle not in session:
+            fail(f"session 缺少安全探索接入: {needle}")
+            return
+    ok("安全探索：连续 blocked 暂停单臂、全暂停返回 halt、fixed 不受影响，CLI 已接入")
+
+
 def check_explore_planner():
     """探索规划是只读层：不发请求、预算封顶、同输入可复现。"""
     code = """
@@ -1153,6 +1222,7 @@ def main():
     check_arms_guard()
     check_strategy_context()
     check_policy_memory()
+    check_safe_exploration()
     check_explore_planner()
     check_crawl_guard()
     check_bandit_smoke()

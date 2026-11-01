@@ -22,12 +22,13 @@ recon explore --policy-in recon/<代号>/policy.json \
 - `auth` / `missing` / `noise` / 限频行不进入统计——它们不是客户端栈的差异。
 - `--arms` 只列臂名，不接受 `arm=rate`；胜率必须来自试验行或档案。
 - 策略档案里的 `prior_strength` / `half_life` / `cost_weight` 以档案为准，命令行只追加新臂。
+- `--block-budget`（默认 `3`，`0` 关闭）在回放试验行时重演“连续 blocked 暂停单臂”；策略档案只有累计计数，重建不了“连续”序列，从档案规划不会产生暂停，要看暂停用 `--trials`。
 
 ## 输出
 
 | 字段 | 含义 |
 |---|---|
-| `contexts` | 每个上下文的页数权重、`best_arm`、`confidence`、`decision`、每臂后验 |
+| `contexts` | 每个上下文的页数权重、`best_arm`、`confidence`、`decision`、`suspended_arms`、每臂后验 |
 | `steps` | 本轮建议：上下文、臂、请求数、`kind`（`unseen` / `warmup` / `explore`）、理由 |
 | `hold` | 已判 `exploit` 的上下文：保持当前选臂，不再花请求 |
 | `unseen_arms` | 全局一次都没试过的臂 |
@@ -46,6 +47,15 @@ recon explore --policy-in recon/<代号>/policy.json \
 
 分配按“权重 /（已分配 + 1）”贪心：未见与补样本权重 1.0，探索权重 `1 − confidence`；同权重按页数多、上下文名、臂顺序打破平局。单上下文最多 `--max-per-context` 个请求，总请求不超过 `--budget`。
 
+## 安全探索与暂停
+
+探索会主动试次优臂，但撞墙要能收手。回放试验行时，`--block-budget`（默认 `3`，`0` 关闭）重演 `crawl` 的暂停规则：同一 `host + 路由类 + 臂` 连续可归因 `blocked` 达阈值后，该臂在本轮不再被选中。
+
+- 被暂停的臂**不进入** `steps`，也不参与 `best_arm` 与 `P(best)` 计算；`contexts[].suspended_arms` 会列出来。
+- 一个上下文的所有候选臂都暂停时，`_context_plan` 返回 `hold` 而不是 `steps`，理由提示先核查 robots / 限速 / 出口；`summary.suspended_contexts` 统计这类上下文，`stop` 里会多一条停止规则。
+- 暂停只影响“还剩多少请求该花”，不改变合规边界：`explore` 仍然不联网、不发请求。
+- 从 `--policy-in` 规划时不会模拟暂停——档案只存累计计数，无法重建连续 blocked 序列；需要复核暂停时用 `--trials` 回放当轮试验行。
+
 ## 怎么读
 
 - **先看 `steps` 是否覆盖了最不确定的上下文**，再看 `allocated`。预算没用尽是正常现象：动作都满足目标值或单上下文上限。
@@ -53,6 +63,7 @@ recon explore --policy-in recon/<代号>/policy.json \
 - **`warmup` 的请求数来自差额**，不是拍脑袋的重复请求；补到目标值就停。
 - **`explore` 探测次优臂**，是为了把“谁更好”的不确定性降下来；不确定度高时分配更多，不确定度低时自然退回 `hold`。
 - **`hold` 不等于永久结论**。规则漂移、路由变化或新臂加入后，重新跑 `explore` 再看。
+- **`suspended_arms` 非空时先别补样本**：连续 blocked 多半是这一段路由被拦或触发限速，继续加请求只会加深风控；先核查 robots、`--delay` 与出口，再决定是否降 `--block-budget` 重放。
 - 多个种子/多轮结果不一致时，先补样本，不要直接把某条臂写死进配置。
 
 ## 工作流

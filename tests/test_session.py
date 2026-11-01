@@ -90,6 +90,30 @@ class SessionTest(unittest.TestCase):
         self.assertTrue(second["skipped"].startswith("circuit-open"))
         self.assertEqual(second["requests"], 0)
 
+    def test_all_arms_suspended_halts_without_request(self):
+        routes = {"/wall": lambda h: support.response(h, 403, "Forbidden")}
+        with support.serve(routes) as base:
+            s = ArmSession(["native"], registry=empty_registry(), delay=0,
+                           permission=True, block_budget=1,
+                           max_consecutive_blocked=5)
+            first = s.probe(base + "/wall")
+            second = s.probe(base + "/wall")
+        self.assertEqual(first["evidence"]["outcome"], "blocked")
+        self.assertEqual(second["halt"], "all-arms-suspended")
+        self.assertEqual(second["requests"], 0)
+        self.assertEqual(second["suspended"], ["native"])
+
+    def test_block_budget_zero_keeps_requesting(self):
+        routes = {"/wall": lambda h: support.response(h, 403, "Forbidden")}
+        with support.serve(routes) as base:
+            s = ArmSession(["native"], registry=empty_registry(), delay=0,
+                           permission=True, block_budget=0,
+                           max_consecutive_blocked=5)
+            s.probe(base + "/wall")
+            second = s.probe(base + "/wall")
+        self.assertEqual(second["requests"], 1)
+        self.assertEqual(second["evidence"]["outcome"], "blocked")
+
     def test_require_filters_without_request(self):
         s = ArmSession(["native"], registry=empty_registry(), delay=0,
                        permission=True)

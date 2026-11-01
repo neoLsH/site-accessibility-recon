@@ -4,6 +4,30 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.18.0] — 2026-11-02
+
+把探索从“敢试”推进到“会收手”：连续可归因 blocked 达到预算即暂停单臂，全暂停时整页 halt，不再为试满而继续撞墙。
+
+### 新增
+
+- `ContextualBandit` 的 `block_budget`（默认 `3`，`0` 关闭）：按 `host + 路由类 + 臂` 统计连续可归因 `blocked`，达阈值后该臂在本轮剩余请求里暂停；`ok` / `degraded` 清零，`auth` / `missing` / `noise` / 限频不计数也不清零。
+- 快照新增 `suspended` / `block_streak` / `suspended_arms` / `block_budget`；候选臂全暂停时 `select` 返回 `None`，快照 `decision` 记为 `halt`。
+- `ArmSession` 感知 `halt`：该页记 `all-arms-suspended`，不发额外请求；`crawl` 摘要新增 `suspended_pages`，`fetch` / `quick` / `matrix` 同步接入。
+- `crawl` / `fetch` / `quick` / `matrix` / `explore` 新增 `--block-budget`；`explore` 回放时重演暂停，被暂停的臂不进 `steps`，整段上下文全暂停时进 `hold` 并追加停止规则。
+- `tests/test_policy_safety.py`（10 个）与 `crawl` / `session` / `explore` 的暂停用例；自检新增安全探索门禁（暂停 / 清零 / 路由隔离 / halt / fixed 不受影响 / 档案仍为 5 元组 / 规划排除暂停臂）。
+
+### 变更
+
+- `references/strategy.md` 增加“安全探索：连续 blocked 暂停单臂”，`crawl.md`、`cli.md`、`explore.md`、`atoms.md`、`agent.md` 同步补暂停语义与 `halt` 停止条件。
+- `SKILL.md` 版本升到 1.18.0；`README.md`、`AGENTS.md` 同步。
+
+### 已知限制
+
+- 暂停只作用于 `thompson` / `ucb1`：`fixed` / `round_robin` 是显式穷举模式，不做裁剪。
+- 暂停状态只在内存里，不写进 `recon-policy/1`；下一轮恢复档案后重新计数，不构成永久拉黑。
+- 暂停粒度是 `host + 路由类`，同一路由下的不同响应类共享暂停；路由分类粗分时可能连带暂停本可访问的页面。
+- 它只约束请求节奏，不改变合规边界：robots、节流、host 级熔断照常执行；全暂停时应核查限速与出口，而不是关掉暂停继续试。
+
 ## [1.17.0] — 2026-11-02
 
 把后验从“诊断结论”推进到“下一批请求的执行计划”：新增只读探索规划器，回答预算该花在哪个上下文、哪条臂、还差多少样本。

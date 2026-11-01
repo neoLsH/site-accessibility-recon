@@ -33,7 +33,7 @@
 
 形态与概率门是分诊的前置：`recon shape` 先认页面形态（静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空态），`recon canary` 再用同栈多 pass 判断是否概率门。单发请求推不出翻转率。
 
-选臂只在合规客户端栈之间做，按 `host|路由类|响应类` 分上下文累计胜率；默认用 `--prior-strength 4` 从相邻上下文借先验，`--half-life 0` 不遗忘；`quick` 每条 URL 只发一个请求、跨 URL 学习，`matrix` 默认穷举，`canary` 固定一条臂。`--policy-out` / `--policy-in` 让后验跨轮复用（`recon-policy/1`）。规则见 [strategy.md](references/strategy.md)。
+选臂只在合规客户端栈之间做，按 `host|路由类|响应类` 分上下文累计胜率；默认用 `--prior-strength 4` 从相邻上下文借先验，`--half-life 0` 不遗忘；`quick` 每条 URL 只发一个请求、跨 URL 学习，`matrix` 默认穷举，`canary` 固定一条臂。`--block-budget 3` 让连续可归因 blocked 暂停单臂，全暂停记 `all-arms-suspended`；`fixed` / `round_robin` 不受裁剪，暂停只在内存里。`--policy-out` / `--policy-in` 让后验跨轮复用（`recon-policy/1`）。规则见 [strategy.md](references/strategy.md)。
 
 ## 按需读取
 
@@ -47,7 +47,7 @@
 - 全部命令、选项、判据、退出码与基线阈值：[references/cli.md](references/cli.md)
 - 原子层（量测 / 归类 / robots / 取样 / 节奏 / 证据 / 选举）与扩展方式：[references/atoms.md](references/atoms.md)
 - 客户端臂注册表、外部内核契约与能力过滤：[references/arms.md](references/arms.md)
-- 选臂上下文、奖励与成本、各能力点的选臂语义：[references/strategy.md](references/strategy.md)
+- 选臂上下文、奖励与成本、安全探索与暂停、各能力点的选臂语义：[references/strategy.md](references/strategy.md)
 - 批量采集（多臂选举 / 预算护栏 / 证据行与试验行）：[references/crawl.md](references/crawl.md)
 - 离线推演（给定胜率比较选举策略）：[references/bandit.md](references/bandit.md)
 - 探索规划（后验 → 下一批探测预算）：[references/explore.md](references/explore.md)

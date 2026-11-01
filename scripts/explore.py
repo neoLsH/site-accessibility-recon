@@ -31,6 +31,9 @@ def print_text(body):
     if obs["context_derived"]:
         print(f"注意: {obs['context_derived']} 行缺 context，已按 url + route 推导为 unknown")
     print(f"预算 {body['budget']}，已分配 {body['allocated']}，剩余 {body['remaining']}")
+    suspended = body["summary"].get("suspended_contexts") or 0
+    if suspended:
+        print(f"暂停上下文: {suspended}（所有候选臂连续 blocked，本轮不再分配）")
     if body["unseen_arms"]:
         print(f"全局未试臂: {', '.join(body['unseen_arms'])}")
     print()
@@ -79,6 +82,8 @@ def main():
                     help="按更新次数指数遗忘的半衰期，默认 0（不遗忘）")
     ap.add_argument("--cost-weight", type=float, default=0.1,
                     help="成本惩罚权重（5000ms 归一化），默认 0.1；0 关闭")
+    ap.add_argument("--block-budget", type=int, default=3,
+                    help="同一路由连续 blocked 几次暂停该臂，默认 3；0 关闭")
     ap.add_argument("--seed", type=int, default=7, help="诊断采样种子，默认 7")
     ap.add_argument("--json", action="store_true", help="输出 JSON")
     args = ap.parse_args()
@@ -97,6 +102,8 @@ def main():
         ap.error("--half-life 不能为负")
     if args.cost_weight < 0:
         ap.error("--cost-weight 不能为负")
+    if args.block_budget < 0:
+        ap.error("--block-budget 不能为负")
 
     try:
         extra = explore.parse_arms(args.arms)
@@ -113,17 +120,21 @@ def main():
             bandit, pages, observed = explore.replay(
                 rows, arms=extra, prior_strength=args.prior_strength,
                 half_life=args.half_life, cost_weight=args.cost_weight,
-                min_pulls=args.min_pulls, seed=args.seed)
+                min_pulls=args.min_pulls, seed=args.seed,
+                block_budget=args.block_budget)
             source = "trials"
         else:
             try:
                 body = policy_store.load(args.policy_in)
             except ValueError as e:
                 ap.error(str(e))
-            bandit, pages, observed = explore.from_policy(body, extra_arms=extra)
+            bandit, pages, observed = explore.from_policy(
+                body, extra_arms=extra, block_budget=args.block_budget)
             source = "policy"
             notes.append("策略档案里的 prior_strength / half_life / cost_weight "
                          "以档案为准；本轮命令行只覆盖额外臂")
+            notes.append("策略档案不记录暂停状态；连续 blocked 的臂要到 "
+                         "--trials 回放时才会计入安全探索")
         result = explore.plan(
             bandit, pages, observed, budget=args.budget,
             max_per_context=args.max_per_context,

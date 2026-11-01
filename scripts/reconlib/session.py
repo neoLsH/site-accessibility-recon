@@ -36,7 +36,8 @@ class ArmSession:
                  min_pulls=1, delay=pacing.DEFAULT_DELAY, timeout=20,
                  ua=UA_DEFAULT, max_consecutive_blocked=3, save=None,
                  require=(), permission=False, clock=None, sleep=None,
-                 cost_weight=0.1, prior_strength=4.0, half_life=0.0):
+                 cost_weight=0.1, prior_strength=4.0, half_life=0.0,
+                 block_budget=3):
         from . import arms as armreg
         self.registry = registry or armreg.load()
         self.arms = [self.registry.get(name) for name in arm_names]
@@ -47,7 +48,8 @@ class ArmSession:
         self.bandit = ContextualBandit(
             [a.name for a in self.arms], algorithm=policy, seed=seed,
             min_pulls=min_pulls, cost_weight=cost_weight,
-            prior_strength=prior_strength, half_life=half_life)
+            prior_strength=prior_strength, half_life=half_life,
+            block_budget=block_budget)
         kw = {"delay": delay,
               "max_consecutive_blocked": max_consecutive_blocked}
         if clock is not None:
@@ -115,6 +117,15 @@ class ArmSession:
                 page["stopped"] = "budget"
                 break
             name = self.bandit.select(host, ctx, candidates)
+            if name is None:
+                page["halt"] = "all-arms-suspended"
+                page["stopped"] = "all-arms-suspended"
+                page["skipped"] = "all-arms-suspended"
+                page["suspended"] = self.bandit.suspended_arms(host, ctx)
+                page["reason"] = "该路由下所有候选臂都连续 blocked，已暂停到本轮结束"
+                page["requests"] = used
+                flush_skipped()
+                return page
             arm = self.registry.get(name)
             self.pace.wait(host)
             obs = fetch_observation(url, arm, timeout=self.timeout, ua=self.ua)

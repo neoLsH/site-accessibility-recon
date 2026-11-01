@@ -55,6 +55,19 @@ host|article|challenge → host|article|* → host|*|* → *
 
 `decision` 只是诊断提示，不改变 `select` 的探索行为：`thompson` 仍按后验抽样，`ucb1` 仍带探索项。要按诊断强制收手，用 `--policy fixed` 并显式给臂顺序。
 
+## 安全探索：连续 blocked 暂停单臂
+
+探索会主动试次优臂，但“试”不等于“可以一直撞墙”。`--block-budget N`（默认 `3`，`0` 关闭）给同一 `host + 路由类 + 臂` 设连续可归因 `blocked` 的上限：
+
+- 连续计数只由可归因的 `blocked` 增加；`ok` / `degraded` 清零。`auth` / `missing` / `noise` / 限频不计数，也不清零——它们不是这条臂的错。
+- 达到阈值后，该臂在**本轮剩余请求**里暂停：`select` 不再选它，快照对应臂标 `suspended: true` 并给出 `block_streak`。
+- 暂停粒度是 `host + 路由类`，所以同 host 同路由的其他 URL 同样生效；其他路由、其他 host 不受影响。
+- 同一上下文所有候选臂都暂停时，`select` 返回 `None`，快照 `decision` 记为 `halt`，`crawl` / `quick` / `fetch` / `matrix` 记一页 `all-arms-suspended` 后停手，不再为了“试满”继续发请求。
+- 只作用于 `thompson` / `ucb1`；`fixed` / `round_robin` 是显式穷举模式，不做裁剪。
+- 暂停状态只在内存里，**不写进策略档案**：下一轮从档案恢复后重新计数。它约束的是本轮的请求节奏，不是永久拉黑。
+
+调法：站点拦截稳定、想更快收手时降到 `1`–`2`；需要更多探索样本（例如新臂上线验证）时调高，或设 `0` 关闭。它和 `crawl` 的 host 级熔断是两层：熔断停整个 host，暂停只停一条臂的一条路由。
+
 ## 跨轮热启动
 
 ```bash
@@ -112,7 +125,7 @@ penalty = cost_weight × min(1, 平均耗时 / 5000)
 
 `quick` 的一条 URL 一次请求意味着它**不能**在同一条 URL 内试探；它的选臂是“上一次快筛学到的东西”用在下一班 URL 上。要判断单条 URL 需要哪条臂，用 `fetch` 或 `matrix`。
 
-`--policy-in` / `--policy-out` 只搬运后验，不改变上表的选臂语义：`canary` 仍固定单臂，`matrix` 仍默认穷举，`quick` 仍每条 URL 只发一个请求。
+`--policy-in` / `--policy-out` 只搬运后验，不改变上表的选臂语义：`canary` 仍固定单臂，`matrix` 仍默认穷举，`quick` 仍每条 URL 只发一个请求。`--block-budget` 同理只影响自适应策略：`fetch` 与 `crawl` 默认 `3`，`quick` / `matrix` 也可显式设置，`fixed` / `round_robin` 下不生效。
 
 ## 读法
 

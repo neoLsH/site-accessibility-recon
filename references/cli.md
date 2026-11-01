@@ -7,15 +7,15 @@
 | 命令 | 底层脚本 | 回答什么 | 关键选项 |
 |---|---|---|---|
 | `doctor` | `preflight.sh` | 环境缺什么、缺了会降级成什么 | — |
-| `quick` | `quick.py` | 每条 URL 值不值得继续测 | `--from` `--selector` `--min-content` `--delay` `--arms` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--policy-in` `--policy-out` `--skip-robots` |
+| `quick` | `quick.py` | 每条 URL 值不值得继续测 | `--from` `--selector` `--min-content` `--delay` `--arms` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--skip-robots` |
 | `shape` | `shape.py` | 这一份响应是什么形态 | `--html` `--signals` `--explain` `--save-html` `--min-content` |
-| `matrix` | `matrix.py` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--arms` `--stop-on-ok` `--cost-weight` `--prior-strength` `--half-life` `--policy-in` `--policy-out` `--save-html` `--delay` |
+| `matrix` | `matrix.py` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--arms` `--stop-on-ok` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--save-html` `--delay` |
 | `canary` | `canary.py` | 是否概率门；改前改后是否回归 | `--selector` `--passes` `--delay` `--save` `--compare` `--arms` `--policy` `--arms-file` |
 | `stats` | `stats.py` | 按路由拆分的双指标、区间与改前改后差值 | `--compare` `--min-den`；位置参数为 JSONL / canary 基线 JSON |
-| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--policy-in` `--policy-out` `--out-dir` |
-| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--policy-in` `--policy-out` `--seed` `--evidence-out` `--trial-out` |
+| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--out-dir` |
+| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--seed` `--evidence-out` `--trial-out` |
 | `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` / `--rates-json` / `--policy-in` `--pages` `--policies` `--seed` |
-| `explore` | `explore.py` | 只读探索规划：后验 → 下一批探测与停止规则 | `--trials` / `--policy-in` `--arms` `--budget` `--max-per-context` `--target-pulls` `--prior-strength` `--half-life` `--cost-weight` `--seed` |
+| `explore` | `explore.py` | 只读探索规划：后验 → 下一批探测与停止规则 | `--trials` / `--policy-in` `--arms` `--budget` `--max-per-context` `--target-pulls` `--prior-strength` `--half-life` `--cost-weight` `--block-budget` `--seed` |
 | `advise` | `advise.py` | 证据行 → 下一步动作（只读，不执行） | `--route` `--json` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
@@ -130,7 +130,7 @@ recon stats recon/<代号>/evidence-before.jsonl --compare recon/<代号>/eviden
 - 每级记录 `http / bytes / 内容区 / final_url / outcome / attributable / rate_limited`。
 - 成功即停；`attributable: false` 的失败（限频、鉴权、内容不存在、链路噪声）也停——换栈救不了，先处理那个问题。
 - 只有可归因的 `blocked` / `degraded` 才继续试下一级；两级都拦且高阶成功时归为 `2 协议栈白名单`。
-- 选臂按 `host|路由类|响应类` 累计；`--cost-weight`（默认 0.1，0 关闭）按 5000ms 归一化压低慢臂；`--prior-strength`（默认 4，0 关闭）从相邻上下文借先验，`--half-life`（默认 0）按更新次数遗忘旧样本。规则见 [strategy.md](strategy.md)。
+- 选臂按 `host|路由类|响应类` 累计；`--cost-weight`（默认 0.1，0 关闭）按 5000ms 归一化压低慢臂；`--prior-strength`（默认 4，0 关闭）从相邻上下文借先验，`--half-life`（默认 0）按更新次数遗忘旧样本，`--block-budget`（默认 3，0 关闭）在连续可归因 blocked 后暂停该臂。规则见 [strategy.md](strategy.md)。
 - 度量与归类的口径由 `scripts/reconlib/` 原子层提供，见 [atoms.md](atoms.md)。
 - 外部浏览器内核不在仓库内。把适配器写进仓库外的 `arms.json`，用 `--arms-file` / `RECON_ARMS_FILE` / `~/.config/site-recon/arms.json` 接入；契约与安全边界见 [arms.md](arms.md)。未配置的臂以 `skipped` 出现且不计请求预算。
 
@@ -146,7 +146,8 @@ recon crawl --from urls.txt --selector '#content' \
 ```
 
 - 默认护栏：`--max-pages 50`、`--max-requests 150`、`--delay 5`、连续 blocked 3 次熔断。
-- `--policy` 取 `thompson|ucb1|fixed|round_robin`；`--min-pulls` 控制每臂预热次数。
+- `--block-budget`（默认 3，0 关闭）按 `host + 路由类 + 臂` 统计连续可归因 blocked，达阈值暂停该臂；同一上下文候选臂全暂停时该页记 `all-arms-suspended`，不再发请求。
+- `--policy` 取 `thompson|ucb1|fixed|round_robin`；`--min-pulls` 控制每臂预热次数；`fixed` / `round_robin` 不受 `--block-budget` 裁剪。
 - `--policy-out <path>` 把后验写成 `recon-policy/1` 档案（原子写）；`--policy-in` 先恢复再继续学，四个采集入口可共用同一档案。档案里只有计数，没有响应体 / Cookie / 凭证。
 - 证据行与试验行都带 `context`（`host|路由类|响应类`），试验行另带 `cost_ms`。
 - 只有可取内容的 `--evidence-out` 能喂 `stats`；`--trial-out` 是 `kind: trial` 的复盘日志，`stats` 会拒绝。
@@ -184,7 +185,8 @@ recon explore --policy-in recon/<代号>/policy.json --arms native,cffi:chrome -
 
 - `--trials` / `--policy-in` 二选一；`--arms` 只列臂名，用来加入档案里没有的新臂。
 - `--budget` 是请求数上限（默认 30），`--max-per-context` 限制单上下文（默认 6），`--target-pulls` 是每臂目标样本（默认 4）。
-- 输出契约 `recon-explore/1`：`contexts`（`best_arm` / `confidence` / `decision`）→ `steps`（`unseen` / `warmup` / `explore`）→ `hold` / `stop` / `notes`。
+- `--block-budget`（默认 3）在回放试验行时重演暂停；被暂停的臂不进 `steps`，整段上下文全暂停时进 `hold` 并给出核查提示。策略档案只有累计计数，无法重建连续序列，档案来源不会产生暂停。
+- 输出契约 `recon-explore/1`：`contexts`（`best_arm` / `confidence` / `decision` / `suspended_arms`）→ `steps`（`unseen` / `warmup` / `explore`）→ `hold` / `stop` / `notes`。
 - 不联网、不发请求、不产生证据行；它只给计划，执行仍走 `crawl` / `quick` / `fetch`。
 - 规划顺序、预算算法与偏差见 [explore.md](explore.md)。
 

@@ -91,7 +91,7 @@ LLM 的价值在于把 `why` 讲清楚、把多条路由的建议排序、把结
 
 - **只读**：`advise.py` 不导入 `fetch` / `robots`，不调用 `subprocess`，建议命令只是字符串。
 - **不猜**：没有证据就 `collect-more`，散点就 `collect-more`，不把小样本读成方向。
-- **有停止条件**：每个动作都带 `stop`，Agent 到达条件必须停，不能无限试错。
+- **有停止条件**：每个动作都带 `stop`，Agent 到达条件必须停，不能无限试错。遇到 `all-arms-suspended`（同路由所有候选臂连续 blocked 被暂停）必须停手核查 robots / 限速 / 出口，不得把 `--block-budget 0` 当继续试的理由。
 - **不扩大授权**：`check-authorization` 只建议使用站点方授权的凭证或官方接口，不提供获取凭证的手段。
 - **不改红线**：[SKILL.md](../SKILL.md) 的红线与 [crawl.md](crawl.md) 的护栏不因 Agent 调用而放宽。
 
