@@ -71,6 +71,14 @@ ts,client,identity,route,egress,http,bytes,final_url,content_region_len,marker,n
 - `marker`：命中的风控特征（响应头字段、凭证属性、页面文案、跳转路径）。
 - `note`：是否重试、是否换出口、是否暖态。
 
+需要直接结算双指标时，把同一批观测另写一份 JSONL（每行至少 `route`、`outcome`、`content_len`）：
+
+```json
+{"route": "/article/1", "outcome": "ok", "content_len": 812}
+```
+
+`outcome` 取 `ok | degraded | blocked | auth | missing | noise`；`recon stats <文件>` 按路由出可访问性与完整率，口径见 [cli.md](cli.md#双指标结算)。CSV 留全字段用于回放，JSONL 只留结算所需字段，两者可以并存。
+
 ---
 
 ## 对照组的三个层次

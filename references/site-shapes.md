@@ -23,9 +23,13 @@
 ```bash
 scripts/recon.py shape https://example.com/page          # 1 请求
 scripts/recon.py shape --html recon/raw/p1.html          # 离线复核
+scripts/recon.py shape --html p1.html --explain          # 命中了哪条判据
+scripts/recon.py shape --html p1.html --signals my.json  # 站点特有文案
 ```
 
 输出形态、关键信号（挑战文案 / 登录表单 / 挂载点 / 脚本数 / 可见文本长度）与下一步建议。
+判据默认读 [assets/shape-signals.json](../assets/shape-signals.json)，只放通用文案；`--signals`
+整体替换成站点自己的表，`--explain` 逐条列出命中的文案与门序，便于把误判固化成回归用例。
 置信度固定为 **heuristic**：
 
 - 它只描述「这份响应长什么样」，不判断「是否被反爬」。

@@ -74,7 +74,7 @@ python-requests      chrome    200   577    156      0.644     https://example.c
 | 闸门图 | 这次请求卡在哪几扇门，哪些已证通过，哪些还是假设 |
 | 证据矩阵 | 客户端栈 × 身份 × 路由 的结果表，含对照组 |
 | 站点档案 | `recon/<代号>/profile.yaml`，机器可读，可直接驱动执行侧 |
-| 双指标 | 可访问性成功率 / 内容完整率，分开统计（时间受限可后补，但须标注样本范围） |
+| 双指标 | 可访问性成功率 / 内容完整率，按路由拆分并用 `stats` 出区间（时间受限可后补，但须标注样本范围） |
 | 报告 | 复现步骤、根因、最低成本方案、回归方式（同上，可后补；用 `scripts/report.py` 从档案生成） |
 
 ## 核心模型
@@ -90,7 +90,9 @@ python-requests      chrome    200   577    156      0.644     https://example.c
 
 **三态分诊**：链路失败 / 反爬拦截 / 内容业务状态。三者对策互斥，判错一次后面全错。
 
-**双指标**：可访问性成功率与内容完整率分母不同，禁止合并成一个“成功率”。
+**双指标**：可访问性成功率与内容完整率分母不同，禁止合并成一个“成功率”；`stats` 负责噪声剔除、路由拆分与区间。
+
+**回归基线**：改前 `canary --save` 落基线，改后 `--compare` 对同一份基线复测；结论翻转、翻转率上升、内容中位数下降任一命中即判回归。
 
 **对策阶梯**：S0 换数据源 → S1 请求语义 → S2 客户端栈 → S3 运行时卫生 → S4 出口策略 → S5 内核身份 → S6 行为 → S7 合法鉴权。永远从最便宜的开始。
 
@@ -118,8 +120,12 @@ cp -R ./assets/workspace/. ./recon/
 # 4. 跑客户端栈矩阵（同 UA 换栈看是否翻转；同时量内容区，区分空壳与真正文）
 ./scripts/recon.py matrix 'https://example.com/article/1' --selector '#content' --passes 3
 
-# 4.5 概率门定性：同栈多 pass，翻转率 >0 就按区间报，别报单点
-./scripts/recon.py canary 'https://example.com/article/1' --selector '#content' --passes 5
+# 4.5 概率门定性 + 落基线：同栈多 pass，翻转率 >0 就按区间报，别报单点
+./scripts/recon.py canary 'https://example.com/article/1' --selector '#content' --passes 5 \
+  --save recon/forum/canary.json
+
+# 4.6 双指标结算：证据行按路由拆分，噪声单列，附 Wilson 区间
+./scripts/recon.py stats recon/forum/evidence.jsonl
 
 # 5. 分诊：链路失败？反爬拦截？内容不存在？
 #    见 references/triage-and-gates.md；判进反爬拦截后按 references/waf-classes.md 归类
@@ -140,8 +146,12 @@ cp -R ./assets/workspace/. ./recon/
 # 7. 档案 lint + 执行计划：卡哪扇门、下一步做哪一级、怎么验证；再生成报告与自检
 ./scripts/recon.py plan recon/forum/profile.yaml
 ./scripts/recon.py report recon/forum/profile.yaml --out recon/forum/report.md
+./scripts/recon.py canary 'https://example.com/article/1' --selector '#content' \
+  --passes 5 --compare recon/forum/canary.json      # 改后回归对比
 ./scripts/recon.py check
 ```
+
+想先看完整链路而不碰真实站点：按 [端到端走查](references/walkthrough.md) 用仓库自带的本地示例站跑一遍。
 
 浏览器内指纹快照（含 CDP 泄漏探针）：
 
@@ -165,7 +175,8 @@ recon <命令> [参数...] [--json]
 | `quick` | `quick-check.sh` | 可行性快筛：每 URL 1 请求 + robots |
 | `shape` | `shape.py` | 单响应形态分类：静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空态 |
 | `matrix` | `client-matrix.sh` | 客户端栈矩阵 + 内容区长度 |
-| `canary` | `canary.py` | 概率门定性：同栈多 pass，翻转率与内容区间 |
+| `canary` | `canary.py` | 概率门定性：同栈多 pass，翻转率与内容区间；`--save` / `--compare` 做基线回归 |
+| `stats` | `stats.py` | 双指标结算：按路由拆分可访问性成功率与内容完整率，附 Wilson 区间 |
 | `fetch` | `fetch-page.py` | 客户端阶梯取内容 + WAF 归类 |
 | `surface` | `js-surface.py` | 站点 JS 采集面：静态扫六类采集与上报通道 |
 | `fp` | `fp-echo.py` | `fp collect` 采集快照 / `fp diff A B` 比对 |
@@ -182,7 +193,7 @@ recon <命令> [参数...] [--json]
            "reason": "内容区 156 低于下限 200，且无 CSR 迹象"}]}
 ```
 
-`fp` → `{"command":"fp","diff":{"total":3,"differ":2,"fields":[...]}}`，`fetch` → `records`，`surface` → `categories` / `suggest`，`shape` → `shape` / `signals` / `next`，`canary` → `verdict` / `flip_rate` / `content`，`plan` → `lint` / `blocking` / `steps`，`check` → `failures`，`report` → `out` / `report`。`ok` 直接取自退出码，所以「有 URL 不可行」「两份指纹有差异」「这次抓取翻转了」都是 `false`。
+`fp` → `{"command":"fp","diff":{"total":3,"differ":2,"fields":[...]}}`，`fetch` → `records`，`surface` → `categories` / `suggest`，`shape` → `shape` / `signals` / `explain` / `next`，`canary` → `verdict` / `flip_rate` / `content` / `compare`，`stats` → `overall` / `groups`，`plan` → `lint` / `blocking` / `steps`，`check` → `failures`，`report` → `out` / `report`。`ok` 直接取自退出码，所以「有 URL 不可行」「两份指纹有差异」「这次抓取翻转了」「相对基线回归了」都是 `false`。
 
 想当全局命令用：
 
@@ -238,33 +249,39 @@ references/
   review-scorecard.md         # 诊断质量评分卡（独立 reviewer 盲评）
   site-shapes.md              # 八种页面形态：识别信号、误判与最小探测路径
   execution.md                # 从档案到执行：lint 分级、层→级、五步、失败回流
+  cli.md                      # 命令、选项、判据、退出码、基线阈值与指标行格式
+  walkthrough.md              # 端到端走查（本地示例站，不碰真实目标）
   cases/                      # 脱敏案例（推理链）
 assets/
   site-profile.template.yaml  # 站点档案模板
   report-template.md          # 报告模板
+  shape-signals.json          # 形态判据表（可用 --signals 整体替换）
+  example/                    # 走查用本地示例站、示例档案与证据行
   workspace/                  # 工作区骨架：复制成 <项目根>/recon/（自带 .gitignore）
     .gitignore                # 除骨架外全部忽略
     README.md                 # 工作区约定：命名、规矩、重来一次
     raw/.gitkeep              # 原始响应体目录
 scripts/
-  recon.py                    # 统一入口：doctor / quick / shape / matrix / canary / fetch / surface / fp / plan / report / check
+  recon.py                    # 统一入口：doctor / quick / shape / matrix / canary / stats / fetch / surface / fp / plan / report / check
   preflight.sh                # 环境自检（必需 / 可选工具与版本）
   quick-check.sh              # 可行性快筛（robots 检查 + 1 请求 + 内容区）
-  shape.py                    # 单响应形态分类（启发式，可 --html 离线）
+  shape.py                    # 单响应形态分类（启发式，可 --html 离线 / --explain / --signals）
   client-matrix.sh            # 客户端栈矩阵
-  canary.py                   # 概率门：同栈多 pass 的翻转率与内容区间
+  canary.py                   # 概率门：同栈多 pass 的翻转率与内容区间；基线保存与对比
+  stats.py                    # 双指标结算：按路由拆分 + Wilson 区间
   fingerprint-probe.js        # 指纹快照 + CDP 泄漏探针
   fp-echo.py                  # 网络栈指纹快照 + 逐字段 diff
   fetch-page.py               # 客户端阶梯取内容 + WAF 归类
   js-surface.py               # 站点 JS 采集面静态扫描
   plan.py                     # 档案 lint + 执行计划推导
   report.py                   # 从 profile.yaml + evidence.csv 生成报告
-  self-check.py               # 结构与脱敏校验（可用于 CI）
+  self-check.py               # 结构、脱敏、脚本语法与冒烟校验（--tests 一并跑行为测试）
+tests/                        # stdlib unittest：形态 / 概率门 / 指标 / 计划（本地 server，无外网）
 adapters/
   README.md
   install.sh
 .github/
-  workflows/check.yml         # 每次 push / PR 跑 self-check
+  workflows/check.yml         # 每次 push / PR 跑 self-check + 行为测试
   PULL_REQUEST_TEMPLATE.md
   ISSUE_TEMPLATE/
 LICENSE                       # MIT
@@ -273,10 +290,13 @@ LICENSE                       # MIT
 ## 质量校验
 
 ```bash
-python3 scripts/self-check.py
+python3 scripts/self-check.py            # 结构 / 脱敏 / 脚本语法 / 冒烟
+python3 -m unittest discover -s tests -v # 行为测试（本地 fixture，无外网）
 ```
 
-覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识）、全部脚本语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行、**案例结构**（章节齐全、编号规范、置信度已标）、**版本记录**（`CHANGELOG.md` 含当前版本）、**执行计划可运行**（模板 lint 无 ERROR）、**节流护栏**（`canary` 的 pass 上限与默认间隔）。退出码非 0 即不可发布。
+覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识，扫描范围含示例站与 fixture）、全部脚本与测试语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行、**案例结构**（章节齐全、编号规范、置信度已标）、**版本记录**（`CHANGELOG.md` 含当前版本）、**执行计划可运行**（模板与示例档案 lint 均无 ERROR）、**节流护栏**（`canary` 的 pass 上限与默认间隔）、**形态判据表**（可解析且被 `shape.py` 默认加载）、**双指标口径**（示例证据行结算为 6/7 可访问、4/6 完整）、**行为测试接入**（`tests/` 用例已进 CI）。`python3 scripts/self-check.py --tests` 会顺带跑一遍行为测试。退出码非 0 即不可发布。
+
+行为测试用 stdlib `unittest` + 本地 `ThreadingHTTPServer`，不访问外网、不需要浏览器；CI 每次 push / PR 各跑一遍。
 
 自检只管仓库合不合规，不管某次诊断站不站得住——后者用 [诊断质量评分卡](references/review-scorecard.md)，由独立 reviewer agent 盲评。
 
@@ -304,6 +324,7 @@ python3 scripts/self-check.py
 8. **记录留在本地。** 工作区放项目根，骨架进仓库、内容不进；要外发就另存脱敏版。
 9. **先定判定面再动手。** 边缘、前端采集、服务端评分三者的修复杠杆互斥；采集不等于判定，只有 ablation 能证明因果。
 10. **执行从档案推导。** 计划不手写：`plan` 先 lint 档案，再按最早失败的门给出动作与判据；跳过 lint 的计划会把错误结论放大成线上改动。
+11. **可复现胜过结论。** 判据写成数据（`shape-signals.json`）、指标写成可结算的行（`stats`）、回归写成可对比的基线（`canary --compare`）；走查在本地示例站跑通，别人才有办法重跑你的结论。
 
 ## 边界
 
@@ -326,7 +347,7 @@ python3 scripts/self-check.py
 
 ## 状态
 
-v1.7.0 — 把探索与执行两侧补成闭环：`recon shape`（[site-shapes.md](references/site-shapes.md)）先认八种页面形态，避免用错判据；`recon canary`（[canary.py](scripts/canary.py)）用同栈多 pass 的翻转率区分确定性闸门与概率门，硬上限 10 pass、间隔不低于 2s；`recon plan`（[plan.py](scripts/plan.py) + [execution.md](references/execution.md)）先 lint 档案（证据绑定、`null`/`0`、疑似站点常量、过期），再按最早失败的门推导 S 级、五步动作与停止条件。自检新增执行计划冒烟与节流护栏两项。v1.6.0 — 对齐 Agent Skills 生态的六件事：`SKILL.md` frontmatter 补 `license` / `compatibility` / `allowed-tools`（运行时依赖从 `preflight.sh` 提到激活时可见）；新增 [反模式黑名单](references/anti-patterns.md)（10 条，含替代做法）与 [诊断质量评分卡](references/review-scorecard.md)（五维 100 分，独立 reviewer 盲评，产出 `recon/<代号>/REVIEW.md`）；[evidence-matrix.md](references/evidence-matrix.md) 补子 agent 编排（一个实验一个子 agent、只回报结构化行、缺对照整批作废）；新增 [CONTRIBUTING.md](CONTRIBUTING.md)、PR / issue 模板、`CHANGELOG.md`；自检增加案例结构与版本记录校验。此前各版本见 [CHANGELOG.md](CHANGELOG.md)。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑。已知限制：尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
+v1.8.0 — 把「结论」变成可复现的产物：`recon stats`（[stats.py](scripts/stats.py) + [metrics.md](references/metrics.md)）按路由结算双指标并给 Wilson 95% 区间，噪声单列、两个分母不合并；`recon canary --save/--compare`（[canary.py](scripts/canary.py)）把回归固化成基线与四项阈值（判定翻转、翻转率 +0.2、内容中位数 −20%、噪声 +0.2）；`recon shape` 的判据外置到 [shape-signals.json](assets/shape-signals.json)，新增 `--explain` 与 `--signals`；新增 [references/walkthrough.md](references/walkthrough.md) 与 [assets/example/](assets/example/) 本地示例站，九步走查不碰真实目标；常用命令与判据下沉到 [references/cli.md](references/cli.md)，`SKILL.md` 降到 130 行；新增 `tests/`（stdlib unittest，本地 server，无外网）并接进 CI；自检增加形态判据表、双指标口径与测试接入三项。v1.7.0 — 把探索与执行两侧补成闭环：`recon shape`（[site-shapes.md](references/site-shapes.md)）先认八种页面形态，避免用错判据；`recon canary`（[canary.py](scripts/canary.py)）用同栈多 pass 的翻转率区分确定性闸门与概率门，硬上限 10 pass、间隔不低于 2s；`recon plan`（[plan.py](scripts/plan.py) + [execution.md](references/execution.md)）先 lint 档案（证据绑定、`null`/`0`、疑似站点常量、过期），再按最早失败的门推导 S 级、五步动作与停止条件。自检新增执行计划冒烟与节流护栏两项。v1.6.0 — 对齐 Agent Skills 生态的六件事：`SKILL.md` frontmatter 补 `license` / `compatibility` / `allowed-tools`（运行时依赖从 `preflight.sh` 提到激活时可见）；新增 [反模式黑名单](references/anti-patterns.md)（10 条，含替代做法）与 [诊断质量评分卡](references/review-scorecard.md)（五维 100 分，独立 reviewer 盲评，产出 `recon/<代号>/REVIEW.md`）；[evidence-matrix.md](references/evidence-matrix.md) 补子 agent 编排（一个实验一个子 agent、只回报结构化行、缺对照整批作废）；新增 [CONTRIBUTING.md](CONTRIBUTING.md)、PR / issue 模板、`CHANGELOG.md`；自检增加案例结构与版本记录校验。此前各版本见 [CHANGELOG.md](CHANGELOG.md)。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑自检与行为测试。已知限制：走查与行为测试都跑在本地示例站上，尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。
 
 ## License
 

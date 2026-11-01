@@ -1,0 +1,8 @@
+{"route": "/article/1", "outcome": "ok", "content_len": 812}
+{"route": "/article/1", "outcome": "ok", "content_len": 790}
+{"route": "/article/1", "outcome": "ok", "content_len": 834}
+{"route": "/article/2", "outcome": "ok", "content_len": 806}
+{"route": "/article/2", "outcome": "degraded", "content_len": 90}
+{"route": "/article/2", "outcome": "degraded", "content_len": 88}
+{"route": "/article/3", "outcome": "blocked", "content_len": 0}
+{"route": "/article/3", "outcome": "noise", "content_len": 0}

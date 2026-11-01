@@ -11,6 +11,8 @@
     recon shape <url>                               # 单响应页面形态分类
     recon matrix <url> --selector '#content' --passes 3
     recon canary <url> --selector '#content' --passes 5
+    recon canary <url> --compare recon/forum/canary.json   # 回归对比
+    recon stats recon/forum/evidence.jsonl          # 双指标：按路由拆分
     recon fetch <url> --selector '#content'
     recon surface <url>                             # 站点 JS 采集面（静态）
     recon fp collect --via cffi --out chrome.json
@@ -25,7 +27,7 @@
     doctor → preflight.sh    quick → quick-check.sh    shape → shape.py
     matrix → client-matrix.sh canary → canary.py       fetch → fetch-page.py
     surface → js-surface.py  fp    → fp-echo.py        plan  → plan.py
-    report → report.py       check → self-check.py
+    stats → stats.py         report → report.py       check → self-check.py
 """
 
 import json
@@ -43,6 +45,7 @@ TOOLS = {
     "shape": ("python", "shape.py", "单响应形态分类：静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空"),
     "matrix": ("bash", "client-matrix.sh", "客户端栈矩阵：同 URL 跑多种客户端，量内容区"),
     "canary": ("python", "canary.py", "概率门定性：同栈多 pass，报翻转率与内容区间"),
+    "stats": ("python", "stats.py", "双指标结算：按路由拆分可访问性与内容完整率"),
     "fetch": ("python", "fetch-page.py", "客户端阶梯取内容，失败时给 WAF 机制归类"),
     "surface": ("python", "js-surface.py", "站点 JS 采集面：静态扫六类指纹采集与上报通道"),
     "fp": ("python", "fp-echo.py", "网络栈指纹：采集快照 / 逐字段比对"),
@@ -139,7 +142,7 @@ def to_json(command, rc, out, err):
                 body["snapshot"] = json.loads(out)
             except ValueError:
                 body["ok"] = False
-    elif command in ("surface", "shape", "canary", "plan"):
+    elif command in ("surface", "shape", "canary", "stats", "plan"):
         try:
             data = json.loads(out)
             data.pop("ok", None)  # 契约：ok 只取自退出码
@@ -183,7 +186,7 @@ def main(argv):
             rest = ["--diff"] + rest
             if as_json:
                 rest.append("--json")
-    elif cmd in ("fetch", "surface", "shape", "canary", "plan") and as_json:
+    elif cmd in ("fetch", "surface", "shape", "canary", "stats", "plan") and as_json:
         rest.append("--json")
 
     # report / plan 的档案既是位置参数也是 --profile；允许 recon plan <档案>

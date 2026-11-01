@@ -70,6 +70,10 @@ def lint(profile):
     if not str(profile.get('host') or '').strip():
         err('host', '缺少 host')
 
+    base = str(profile.get('base_url') or '').strip()
+    if base and not re.match(r'^https?://\S+$', base):
+        warn('base_url', '应为 http(s)://host[:port][/前缀]，用于生成可执行的示例 URL')
+
     conf = profile.get('confidence')
     if conf not in VALID_CONF:
         err('confidence', f'应为 {"/".join(sorted(VALID_CONF))}，实际 {conf!r}')
@@ -223,8 +227,9 @@ def route_example(profile):
     routes = profile.get('routes') if isinstance(profile.get('routes'), list) else []
     route = next((r for r in routes if isinstance(r, dict) and r.get('pattern')), None)
     host = str(profile.get('host') or 'example.com')
+    base = str(profile.get('base_url') or '').strip().rstrip('/') or f'https://{host}'
     if not route:
-        return f'https://{host}/', ''
+        return f'{base}/', ''
     pat = str(route.get('pattern')).strip()
     path = re.sub(r'[\^$]', '', pat)
     if re.search(r'[()\[\]\\|?*+]', path):
@@ -232,7 +237,7 @@ def route_example(profile):
     if not path.startswith('/'):
         path = '/' + path
     selector = str(route.get('content_selector') or '').strip()
-    return f'https://{host}{path}', selector
+    return f'{base}{path}', selector
 
 
 def derive(profile):

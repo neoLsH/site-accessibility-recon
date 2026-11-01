@@ -1,11 +1,11 @@
 ---
 name: site-accessibility-recon
-description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：识别页面形态（静态 / CSR 空壳 / 挑战页 / 登录墙 / 业务空态），区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，用多 pass 翻转率区分确定性闸门与概率门，遇 WAF 先按机制归类再选合规路径；档案经 lint 后推导执行计划，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标验证对策。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，页面形态识别，概率门与翻转率，可行性快筛，bot defense triage，scrape reliability。
+description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：识别页面形态（静态 / CSR 空壳 / 挑战页 / 登录墙 / 业务空态），区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，用多 pass 翻转率区分确定性闸门与概率门，遇 WAF 先按机制归类再选合规路径；档案经 lint 后推导执行计划，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标（按路由拆分 + Wilson 区间）验证对策，用基线对比防回归。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，页面形态识别，概率门与翻转率，双指标结算与回归基线，可行性快筛，bot defense triage，scrape reliability。
 license: MIT
 compatibility: 需要 python3 与 curl；建议另装 curl_cffi 做浏览器级 TLS 指纹仿真。要让脚本真正联网，还需要能出网的出口；断网时自动降级为离线复核（只分析已留存的 HTML 与快照）。
 allowed-tools: Bash, Read, Write, Edit, WebFetch, Task
 metadata:
-  version: 1.7.0
+  version: 1.8.0
   scope: diagnostics
 ---
 
@@ -47,7 +47,7 @@ metadata:
 | ① 定口径 | URL / 路由集合、成功定义 | 先定义“可访问”和“完整”，再开始测 |
 | ② 分诊 | 异常样本的态别 | `shape` 先认形态，再三态判据，排除链路与内容状态 |
 | ③ 自底向上隔离 | 闸门图 + 证据矩阵 | L1→L5 逐层，单变量，留对照；`canary` 先定性概率门 |
-| ④ 对策与回归 | 站点档案 + 双指标前后对比 | `plan` 从档案推导执行计划，A/B 验证，防非确定性误判 |
+| ④ 对策与回归 | 站点档案 + 双指标前后对比 | `plan` 从档案推导执行计划，`canary --compare` 与 `stats` 做 A/B 验证，防非确定性误判 |
 
 对策等级另用 S0–S7 编号（见 [countermeasure-ladder.md](references/countermeasure-ladder.md)），与步骤编号区分开。
 
@@ -76,7 +76,7 @@ metadata:
 | P0 | 闸门图 | 卡在哪几扇门，哪些已证通过，哪些还是假设 |
 | P0 | 证据矩阵 | 客户端栈 × 身份 × 路由 的结果表，含对照组 |
 | P0 | 站点档案 | `<项目根>/recon/<代号>/profile.yaml`，机器可读，可直接驱动执行侧；模板见 [assets/site-profile.template.yaml](assets/site-profile.template.yaml)。`metrics` 未测就写 `null`，不要写 0 |
-| P1 | 双指标 | 可访问性成功率与内容完整率分开报，含虚高审计 |
+| P1 | 双指标 | 可访问性成功率与内容完整率分开报，按路由拆分并用 `stats` 出区间；改前改后用同一批 URL，含虚高审计 |
 | P1 | 报告 | 复现步骤、根因、最低成本方案、回归方式；不要手写，用 `scripts/report.py` 从档案生成，模板见 [assets/report-template.md](assets/report-template.md) |
 
 P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指标会被误读成全量结论。**工作区**：记录写 `<项目根>/recon/<代号>/`，骨架与忽略规则见 [assets/workspace/README.md](assets/workspace/README.md)；不写进 skill 目录——`skills update` 会整份重写。
@@ -91,6 +91,8 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 | 设计对比实验、算指标、防虚高、做回归 | [evidence-matrix.md](references/evidence-matrix.md) · [metrics.md](references/metrics.md) |
 | 选最低成本对策、遇到 WAF 先归类；从档案推导执行计划 | [countermeasure-ladder.md](references/countermeasure-ladder.md) · [waf-classes.md](references/waf-classes.md) · [execution.md](references/execution.md) |
 | 落站点档案、生成报告 | [references/site-profile.md](references/site-profile.md) |
+| 查某条命令的选项、判据与退出码 | [references/cli.md](references/cli.md) |
+| 第一次跑，想跟着走一遍完整链路 | [references/walkthrough.md](references/walkthrough.md) |
 | 先装环境、知道用哪个工具、别踩版本坑 | [references/toolbox.md](references/toolbox.md) |
 | 做指纹分析（采集 / 自洽 / 差分 / 归因） | [references/fingerprint-methods.md](references/fingerprint-methods.md) |
 | 交付前自查：常见误判、这次诊断站不站得住 | [references/anti-patterns.md](references/anti-patterns.md) · [references/review-scorecard.md](references/review-scorecard.md) |
@@ -98,31 +100,16 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 
 ## 常用脚本
 
+入口统一为 `scripts/recon.py <命令> <参数>`（参数透传，加 `--json` 输出单个对象），命令与选项见 [references/cli.md](references/cli.md)。最短路径：
+
 ```bash
-# 统一入口 recon <命令> <参数>：参数透传给对应脚本，加 --json 输出单个 JSON 对象（含 command 字段）
-scripts/recon.py doctor
-
-# 0) 可行性快筛：一批 URL 各发 1 请求，先分出可行 / 需授权 / 疑似拦截 / 合规禁止
-scripts/recon.py quick --from urls.txt --selector "#content"
-
-# 认页面形态（1 请求，也可 --html 离线）；再跑客户端栈矩阵，同 UA 换栈看是否翻转
-scripts/recon.py shape https://example.com/page
-scripts/recon.py matrix https://example.com/page --selector "#content" --passes 3 --save-html recon/raw
-
-# 概率门定性：同栈多 pass，报翻转率与 min/median/max（上限 10 pass，间隔 >=2s）
-scripts/recon.py canary https://example.com/page --selector "#content" --passes 5
-
-# 浏览器内指纹快照（含 CDP 泄漏探针）；网络栈快照与 diff 配合两个读数页
-scripts/fingerprint-probe.js
-scripts/recon.py fp collect --via cffi --impersonate chrome --out chrome.json
-scripts/recon.py fp diff baseline.json chrome.json
-
-# 取内容 / 看采集面 / 从档案推导执行计划 / 生成报告
-scripts/recon.py fetch 'https://example.com/a' --selector "#content"
-scripts/recon.py surface https://example.com/page
-scripts/recon.py plan recon/forum/profile.yaml
-scripts/recon.py report recon/forum/profile.yaml --out recon/forum/report.md
+recon shape <url> --explain                         # 认形态（也可 --html 离线）
+recon canary <url> --passes 5 --save base.json      # 概率门 + 基线
+recon plan recon/<代号>/profile.yaml                # 档案 lint → 执行计划
+recon stats recon/<代号>/evidence.jsonl             # 双指标（按路由 + 区间）
 ```
+
+`scripts/fingerprint-probe.js` 直接在浏览器页面里跑，不走 `recon` 入口。
 
 ## 红线
 

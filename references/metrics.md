@@ -26,6 +26,26 @@
 - 两个指标都必须**按路由拆分**。同一站点，列表页与详情页可能有数量级的差异。
 - 链路失败、内容不存在要单列，不能混进“拦截”。
 
+## 结算工具
+
+```bash
+scripts/recon.py stats recon/<代号>/evidence.jsonl          # 人读表格
+scripts/recon.py stats recon/<代号>/evidence.jsonl --json   # 机器读
+```
+
+输入是证据行（JSONL）：
+
+```json
+{"route": "/article/1", "outcome": "ok", "content_len": 812}
+```
+
+`outcome` 取 `ok | degraded | blocked | auth | missing | noise`；也可以直接喂
+`canary --save` 的 JSON。输出按路由与 `ALL` 两级给出两个比率和 Wilson 95% 区间，
+噪声从可访问性分母剔除并单列。
+
+手算最容易犯两个错：把 `degraded` 算进完整、把 5xx 算进可访问性分母；前者高估完整率，
+后者把基础设施问题读成反爬。工具只做结算，不替你判断样本是否代表全量。
+
 ## 归因分类
 
 | 分类 | 判据 |

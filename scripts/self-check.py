@@ -16,6 +16,10 @@
  12. 版本记录：CHANGELOG.md 含当前版本条目
  13. 执行计划可运行，且档案模板 lint 无 ERROR
  14. 概率门脚本的节流护栏（pass 上限与默认间隔）
+ 15. 形态判据表：assets/shape-signals.json 可解析，且被 shape.py 默认加载
+ 16. 双指标结算：stats 对示例证据行可运行，口径符合定义
+ 17. 行为测试：tests/ 有可编译的用例，且已接入 CI
+ 18. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -51,8 +55,17 @@ REQUIRED = [
     "references/review-scorecard.md",
     "references/execution.md",
     "references/site-shapes.md",
+    "references/cli.md",
+    "references/walkthrough.md",
     "assets/site-profile.template.yaml",
     "assets/report-template.md",
+    "assets/shape-signals.json",
+    "assets/example/profile.yaml",
+    "assets/example/evidence.jsonl",
+    "assets/example/site/index.html",
+    "assets/example/site/article/index.html",
+    "assets/example/site/article/1.html",
+    "assets/example/site/article/2.html",
     "assets/workspace/.gitignore",
     "assets/workspace/README.md",
     "assets/workspace/raw/.gitkeep",
@@ -65,10 +78,12 @@ REQUIRED = [
     "scripts/js-surface.py",
     "scripts/shape.py",
     "scripts/canary.py",
+    "scripts/stats.py",
     "scripts/plan.py",
     "scripts/recon.py",
     "scripts/report.py",
     "scripts/self-check.py",
+    "tests/support.py",
 ]
 
 # 脱敏红线：命中即失败。这里只放公开可提的站点 / 厂商。
@@ -122,6 +137,26 @@ def script_files():
         if f.endswith((".sh", ".js", ".py")):
             out.append(os.path.join("scripts", f))
     return out
+
+
+def test_files():
+    d = os.path.join(ROOT, "tests")
+    if not os.path.isdir(d):
+        return []
+    return [os.path.join("tests", f) for f in sorted(os.listdir(d)) if f.endswith(".py")]
+
+
+def text_files():
+    """会随仓库出去、且可能夹带敏感标识的文件：Markdown、脚本、配置、fixture。"""
+    skip = {"recon", ".git", "node_modules", "__pycache__"}
+    exts = (".md", ".py", ".sh", ".js", ".json", ".jsonl", ".yaml", ".yml", ".html")
+    out = []
+    for base, dirs, files in os.walk(ROOT):
+        dirs[:] = [d for d in dirs if d not in skip]
+        for f in files:
+            if f.endswith(exts):
+                out.append(os.path.relpath(os.path.join(base, f), ROOT))
+    return sorted(out)
 
 
 def check_structure():
@@ -366,8 +401,7 @@ def check_local_deny():
 def check_forbidden():
     bad = 0
     # 本文件的 FORBIDDEN 列表必然含这些词，跳过自身
-    targets = [p for p in markdown_files() + script_files() + ["assets/site-profile.template.yaml"]
-               if p != "scripts/self-check.py"]
+    targets = [p for p in text_files() if p != "scripts/self-check.py"]
     patterns = FORBIDDEN + (local_deny() or [])
     for p in targets:
         if not os.path.exists(os.path.join(ROOT, p)):
@@ -388,7 +422,7 @@ def check_forbidden():
 
 
 def check_scripts():
-    for p in script_files():
+    for p in script_files() + test_files():
         path = os.path.join(ROOT, p)
         if p.endswith(".sh"):
             if not shutil.which("bash"):
@@ -429,25 +463,27 @@ def check_cli():
 
 
 def check_plan_smoke():
-    """档案模板是 lint 的基线：它可以有提示，但不能有 ERROR。"""
-    r = subprocess.run(
-        [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "plan",
-         os.path.join(ROOT, "assets/site-profile.template.yaml"), "--json"],
-        capture_output=True, text=True)
-    if r.returncode != 0:
-        fail(f"plan 入口异常: {(r.stderr or r.stdout).strip()[:200]}")
-        return
-    try:
-        body = json.loads(r.stdout)
-    except ValueError:
-        fail("plan --json 不是合法 JSON")
-        return
-    lint = body.get("lint") or {}
-    errors = lint.get("errors") or []
-    if errors:
-        fail(f"plan 对模板报告 {len(errors)} 个 ERROR: {errors[0].get('path')}")
-    else:
-        ok(f"plan 可运行，模板 lint 无 ERROR（{len(lint.get('warnings') or [])} 条提示）")
+    """档案模板是 lint 的基线：它可以有提示，但不能有 ERROR；走查用的示例档案同理。"""
+    for path, label in (("assets/site-profile.template.yaml", "模板"),
+                        ("assets/example/profile.yaml", "示例档案")):
+        r = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "plan",
+             os.path.join(ROOT, path), "--json"],
+            capture_output=True, text=True)
+        if r.returncode != 0:
+            fail(f"plan 入口异常（{label}）: {(r.stderr or r.stdout).strip()[:200]}")
+            continue
+        try:
+            body = json.loads(r.stdout)
+        except ValueError:
+            fail(f"plan --json 不是合法 JSON（{label}）")
+            continue
+        lint = body.get("lint") or {}
+        errors = lint.get("errors") or []
+        if errors:
+            fail(f"plan 对{label}报告 {len(errors)} 个 ERROR: {errors[0].get('path')}")
+        else:
+            ok(f"plan 可运行，{label} lint 无 ERROR（{len(lint.get('warnings') or [])} 条提示）")
 
 
 def check_canary_guard():
@@ -461,6 +497,94 @@ def check_canary_guard():
         fail("canary 默认间隔过小（应 >=2s）")
     else:
         ok(f"canary 节流护栏：passes<={cap.group(1)}，delay>={delay.group(1)}s")
+
+
+def check_shape_signals():
+    """判据外置后，判据表本身也要被校验：能解析、能编译、且确实被默认加载。"""
+    try:
+        cfg = json.loads(read("assets/shape-signals.json"))
+    except (OSError, ValueError) as e:
+        fail(f"assets/shape-signals.json 不可用: {e}")
+        return
+    if not isinstance(cfg, dict):
+        fail("shape-signals.json 顶层应为对象")
+        return
+    keys = ("challenge", "login_path", "login_phrase", "mounts", "csr_globals")
+    bad = []
+    for k in keys:
+        vals = cfg.get(k)
+        if not isinstance(vals, list) or not vals:
+            bad.append(f"{k} 应为非空数组")
+            continue
+        for v in vals:
+            if not isinstance(v, str) or not v.strip():
+                bad.append(f"{k} 含空项或非字符串")
+                break
+            try:
+                re.compile(v)
+            except re.error as e:
+                bad.append(f"{k} 正则非法 {v!r}: {e}")
+                break
+    if bad:
+        fail("shape-signals.json 结构异常: " + "; ".join(bad))
+        return
+    if "shape-signals.json" not in read("scripts/shape.py"):
+        fail("shape.py 未默认加载 assets/shape-signals.json")
+        return
+    ok(f"形态判据表可用（{sum(len(cfg[k]) for k in keys)} 条规则），shape.py 默认加载")
+
+
+def check_stats_smoke():
+    """指标口径最容易手算错：用固定示例行锁住定义。"""
+    r = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "stats",
+         os.path.join(ROOT, "assets/example/evidence.jsonl"), "--json"],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        fail(f"stats 入口异常: {(r.stderr or r.stdout).strip()[:200]}")
+        return
+    try:
+        body = json.loads(r.stdout)
+    except ValueError:
+        fail("stats --json 不是合法 JSON")
+        return
+    overall = body.get("overall") or {}
+    access = overall.get("access") or {}
+    complete = overall.get("complete") or {}
+    got = (overall.get("n"), access.get("num"), access.get("den"),
+           complete.get("num"), complete.get("den"))
+    want = (8, 6, 7, 4, 6)
+    if got != want:
+        fail(f"stats 示例口径异常: (n, access_num, access_den, complete_num, complete_den)={got}，应为 {want}")
+    else:
+        ok("stats 可运行，示例口径 6/7 可访问、4/6 完整（噪声单列）")
+
+
+def check_tests():
+    mods = [os.path.basename(p) for p in test_files() if os.path.basename(p).startswith("test_")]
+    if not mods:
+        fail("tests/ 下没有 test_*.py")
+        return
+    if "unittest" not in read(".github/workflows/check.yml"):
+        fail(".github/workflows/check.yml 未跑行为测试（缺 unittest 步骤）")
+    else:
+        ok(f"行为测试 {len(mods)} 个模块，已接入 CI")
+
+
+def run_tests():
+    try:
+        r = subprocess.run(
+            [sys.executable, "-m", "unittest", "discover", "-s", os.path.join(ROOT, "tests")],
+            capture_output=True, text=True, timeout=300, cwd=ROOT)
+    except subprocess.TimeoutExpired:
+        fail("行为测试超时（>300s）")
+        return
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-12:]
+        fail("行为测试失败:\n" + "\n".join(tail))
+        return
+    summary = [ln for ln in (r.stderr or "").splitlines() if ln.startswith("Ran ")]
+    ok(f"行为测试通过（{summary[0] if summary else 'rc=0'}）")
 
 
 def main():
@@ -479,6 +603,11 @@ def main():
     check_cli()
     check_plan_smoke()
     check_canary_guard()
+    check_shape_signals()
+    check_stats_smoke()
+    check_tests()
+    if "--tests" in sys.argv[1:]:
+        run_tests()
 
     print("== 通过 ==")
     for m in oks:

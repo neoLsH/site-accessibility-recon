@@ -13,5 +13,6 @@
 ## 怎么验证的
 
 - [ ] `python3 scripts/self-check.py` 零失败
+- [ ] 改了脚本或判据：`python3 -m unittest discover -s tests` 通过
 - [ ] 案例类改动：六段齐全、已脱敏（无站点名 / 域名 / Cookie 名 / site id）、置信度已标
 - [ ] 涉及版本：已同步 `CHANGELOG.md` 与 `SKILL.md` 的 `metadata.version`

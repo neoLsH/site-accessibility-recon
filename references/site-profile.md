@@ -30,6 +30,7 @@ recon/
 
 ```yaml
 host: example.com
+base_url: ""                 # 可选：http(s)://host[:port][/前缀]，执行计划用它拼示例 URL
 profile_version: 1
 last_verified: 2026-10-28
 confidence: mechanism        # observed | mechanism | efficacy

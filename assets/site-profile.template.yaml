@@ -3,6 +3,7 @@
 # schema 说明见 references/site-profile.md。
 
 host: example.com
+base_url: ""                   # 可选：http(s)://host[:port]，执行计划用它拼示例 URL；留空按 https://host
 profile_version: 1
 last_verified: 2026-01-01      # 超过 30 天视为待复验
 confidence: observed           # observed | mechanism | efficacy

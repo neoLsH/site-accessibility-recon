@@ -1,0 +1,59 @@
+# 示例档案：仅用于 references/walkthrough.md 的本地走查，不是真实站点结论。
+host: 127.0.0.1:8080
+base_url: http://127.0.0.1:8080
+profile_version: 1
+last_verified: 2026-11-01
+confidence: observed
+conclusion: "本地示例站直出正常；示例闸门用于演示 lint 与执行计划推导"
+
+triage:
+  A: 0
+  B: 0
+  C: 0
+  noise: 1
+
+routes:
+  - pattern: "^/article/"
+    kind: detail
+    content_selector: "#content"
+    min_content_len: 200
+    notes: "示例正文容器"
+
+fetcher:
+  mode: http-document
+  reason: "本地静态站，无需浏览器"
+  user_agent: ""
+  headers: {}
+
+network:
+  proxy: none
+  rate_limit: "canary 间隔 >=2s"
+  notes: ""
+
+gates:
+  - name: "网络可达"
+    layer: L1
+    dimension: egress
+    orthogonal: unknown
+    status: pass
+    evidence: "shape 返回 200，final_url 未跳错误页"
+  - name: "请求语义"
+    layer: L3
+    dimension: request_semantics
+    orthogonal: unknown
+    status: fail
+    evidence: "示例：缺少导航类请求头时返回挑战页，补齐后恢复"
+
+metrics:
+  baseline: null
+  after: null
+  inflation_audit: ""
+
+plan:
+  level: S1
+  reason: "最早失败门在 L3"
+  cost: "低"
+  blast_radius: "站点级"
+
+known_issues: []
+non_goals: []

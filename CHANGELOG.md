@@ -4,6 +4,34 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.8.0] — 2026-11-01
+
+把结论变成可复现的产物：指标能结算、回归能对比、判据能替换、走查能重跑。
+
+### 新增
+
+- `scripts/stats.py`（`recon stats`）：按路由结算双指标，给 Wilson 95% 区间；噪声单列，两个分母不合并。输入支持 JSONL 证据行或 `{"rows": [...]}`。
+- `canary --save` / `--compare`：概率门基线落盘与回归对比，四项阈值（判定翻转、翻转率 +0.2、内容中位数 −20%、噪声 +0.2），任一触发即非零退出。
+- `assets/shape-signals.json` + `shape --signals`：形态判据外置，换表即换口径；`shape --explain` 逐条列出命中的信号与判定理由。
+- `references/walkthrough.md` + `assets/example/`：九步端到端走查，跑在本地示例站上，不碰真实目标。
+- `tests/`：stdlib `unittest` 用例（形态 / 概率门 / 指标 / 计划），用本地 `ThreadingHTTPServer`，无外网、无浏览器。
+- `references/cli.md`：全部命令、选项、退出码、基线阈值与指标行格式。
+
+### 变更
+
+- `SKILL.md` 的常用脚本段下沉到 `references/cli.md`，行数降到 130；流程与按需加载接入 `stats`、`--compare`、`--explain`。
+- `scripts/recon.py` 增加 `stats` 子命令，`--json` 契约不变。
+- `scripts/plan.py` 支持档案里的可选 `base_url`，计划里的示例 URL 不再硬拼 `https://`。
+- `scripts/self-check.py` 增加形态判据表、双指标口径、行为测试接入三项检查；脱敏扫描范围扩到示例站、fixture 与全部配置文件，测试脚本一并做语法校验；`--tests` 可直接跑全量用例。
+- CI 在自检之后增加行为测试步骤。
+- README / AGENTS.md 同步新命令、质量校验与目录结构。
+
+### 已知限制
+
+- `stats` 只做描述统计与区间估计，不做显著性检验；样本量小时区间会很宽。
+- `canary` 的对比阈值是工程默认值，站点噪声大时需要按自身分布调，别把阈值当成判据。
+- 行为测试只覆盖脚本契约与固定 fixture，不替代真实目标上的端到端探测。
+
 ## [1.7.0] — 2026-10-31
 
 把探索与执行两侧补成闭环。

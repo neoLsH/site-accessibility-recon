@@ -1,6 +1,6 @@
 # 贡献指南
 
-三类贡献，各自的门槛不同。**所有提交都要先跑 `python3 scripts/self-check.py` 并保持零失败。**
+三类贡献，各自的门槛不同。**所有提交都要先跑 `python3 scripts/self-check.py` 并保持零失败；改了脚本或判据再跑 `python3 -m unittest discover -s tests`。**
 
 ## 1. 案例投稿（最需要）
 
@@ -40,6 +40,7 @@
 ## PR Checklist
 
 - [ ] `python3 scripts/self-check.py` 零失败
+- [ ] 改了脚本或判据：`python3 -m unittest discover -s tests` 通过
 - [ ] 案例：六段齐全、已脱敏、置信度已标
 - [ ] 没有把 `recon/` 工作区内容、原始响应体、`.DS_Store` 带进来
 - [ ] 版本相关改动同步更新了 `CHANGELOG.md`（若涉及 `SKILL.md` 的 `metadata.version`，还要同步 `README.md` 的「状态」）
