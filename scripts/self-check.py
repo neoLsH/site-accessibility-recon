@@ -64,6 +64,7 @@ REQUIRED = [
     "references/atoms.md",
     "references/crawl.md",
     "references/bandit.md",
+    "references/agent.md",
     "assets/site-profile.template.yaml",
     "assets/report-template.md",
     "assets/shape-signals.json",
@@ -87,6 +88,7 @@ REQUIRED = [
     "scripts/fetch-page.py",
     "scripts/crawl.py",
     "scripts/bandit.py",
+    "scripts/advise.py",
     "scripts/reconlib/__init__.py",
     "scripts/reconlib/measure.py",
     "scripts/reconlib/classify.py",
@@ -96,6 +98,7 @@ REQUIRED = [
     "scripts/reconlib/evidence.py",
     "scripts/reconlib/policy.py",
     "scripts/reconlib/simulate.py",
+    "scripts/reconlib/advice.py",
     "scripts/js-surface.py",
     "scripts/shape.py",
     "scripts/canary.py",
@@ -113,6 +116,8 @@ REQUIRED = [
     "tests/test_crawl.py",
     "tests/test_simulate.py",
     "tests/test_bandit.py",
+    "tests/test_advice.py",
+    "tests/test_advise.py",
 ]
 
 # 脱敏红线：命中即失败。这里只放公开可提的站点 / 厂商。
@@ -752,6 +757,84 @@ assert got == {"native": 1.0}, got
     ok("推演可复现且离线；示例试验行估出 native=0.40、cffi=0.75")
 
 
+def check_advice_smoke():
+    """建议层是 Agent / LLM 的交接点：只读、可校验、必须带停止条件。"""
+    code = """
+import sys
+sys.path.insert(0, "scripts")
+from reconlib import advice
+
+body = advice.recommend([
+    {"route": "/a", "outcome": "noise"},
+    {"route": "/a", "outcome": "ok"},
+    {"route": "/b", "outcome": "auth"},
+])
+assert body["next"]["action"] == "check-authorization", body["next"]
+assert body["evidence"]["noise_excluded_n"] == 2, body["evidence"]
+assert body["next"]["stop"], "建议必须带停止条件"
+assert advice.recommend([])["next"]["action"] == "collect-more"
+
+try:
+    advice.recommend([{"kind": "trial", "trial_outcome": "ok"}])
+except ValueError as e:
+    assert "试验行" in str(e)
+else:
+    raise AssertionError("试验行未被拒绝")
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("建议原子异常: " + " | ".join(tail))
+        return
+    body = read("scripts/advise.py")
+    if any(m in body for m in ("fetch_one", "robots", "subprocess", "write_jsonl")):
+        fail("advise 不应联网 / 执行命令 / 写证据行")
+        return
+    if "advice" not in body or "evidence" not in body:
+        fail("advise 未复用 advice / evidence 原子")
+        return
+
+    r = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "advise",
+         os.path.join(ROOT, "assets/example/evidence.jsonl"), "--json"],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        fail(f"advise 示例异常: {(r.stderr or r.stdout).strip()[:200]}")
+        return
+    try:
+        got = json.loads(r.stdout)
+    except ValueError:
+        fail("advise --json 不是合法 JSON")
+        return
+    ev = got.get("evidence") or {}
+    if got.get("schema") != "advise/1" or got.get("ok") is not True:
+        fail(f"advise 契约异常: schema={got.get('schema')!r} ok={got.get('ok')!r}")
+        return
+    if (ev.get("n"), ev.get("noise_excluded_n")) != (8, 7):
+        fail(f"advise 计数口径异常: n={ev.get('n')} 可归因={ev.get('noise_excluded_n')}")
+        return
+    if (got.get("next") or {}).get("action") != "collect-more":
+        fail(f"示例应判补样本，实际 {got.get('next')}")
+        return
+
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8")
+    try:
+        tmp.write(json.dumps({"kind": "trial", "url": "https://example.invalid/a",
+                              "arm": "native", "trial_outcome": "ok"}) + "\n")
+        tmp.close()
+        r = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "advise", tmp.name],
+            capture_output=True, text=True)
+        if r.returncode == 0 or "试验行" not in (r.stderr + r.stdout):
+            fail("advise 未拒绝试验行")
+            return
+    finally:
+        os.unlink(tmp.name)
+
+    ok("建议层只读：示例判 collect-more、噪声剔出分母、试验行被拒、每条建议带停止条件")
+
+
 def check_tests():
     mods = [os.path.basename(p) for p in test_files() if os.path.basename(p).startswith("test_")]
     if not mods:
@@ -800,6 +883,7 @@ def main():
     check_atoms_contract()
     check_crawl_guard()
     check_bandit_smoke()
+    check_advice_smoke()
     check_tests()
     if "--tests" in sys.argv[1:]:
         run_tests()

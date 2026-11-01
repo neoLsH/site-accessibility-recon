@@ -15,6 +15,7 @@
 | `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--out-dir` |
 | `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--policy` `--seed` `--evidence-out` `--trial-out` |
 | `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` `--pages` `--policies` `--seed` |
+| `advise` | `advise.py` | 证据行 → 下一步动作（只读，不执行） | `--route` `--json` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
 | `plan` | `plan.py` | 档案 lint + 从最早失败门推导执行计划 | 档案路径（位置参数） |
@@ -160,6 +161,20 @@ recon bandit --trials recon/<代号>/trials.jsonl --json
 
 读法与偏差见 [bandit.md](bandit.md)。
 
+## 下一步动作
+
+`advise` 只读证据行，输出一个动作与停止条件，供 Agent / LLM 消费：
+
+```bash
+recon advise recon/<代号>/evidence.jsonl --json
+recon advise recon/<代号>/evidence.jsonl --route /article/1
+```
+
+- 输出契约 `advise/1`：`evidence`（计数快照）→ `findings` → `next`（`action` / `layer` / `countermeasure` / `why` / `confidence` / `commands` / `stop`）。
+- 不联网、不发请求、不执行命令；`commands` 只是待人工确认的字符串。
+- 只吃证据行；试验行（`kind: trial`）与未知路由退出 2。
+- 动作与优先级见 [agent.md](agent.md)。
+
 ## 常见组合
 
 ```bash
@@ -170,6 +185,7 @@ recon matrix <url> --selector '#content' --passes 3  # 换栈是否翻转
 recon fetch <url> --selector '#content'              # 分层取内容
 recon crawl --from urls.txt --selector '#content'    # 批量：多臂选举 + 预算护栏
 recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演选臂策略
+recon advise recon/<代号>/evidence.jsonl --json      # 证据行 → 下一步动作
 recon plan recon/<代号>/profile.yaml                 # 档案 → 计划
 recon stats recon/<代号>/evidence.jsonl              # 双指标
 recon report recon/<代号>/profile.yaml --out recon/<代号>/report.md

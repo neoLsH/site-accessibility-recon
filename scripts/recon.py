@@ -17,6 +17,7 @@
     recon fetch <url> --selector '#content'
     recon crawl --from urls.txt --selector '#content'   # 批量取内容：多臂选举
     recon bandit --arms native=0.4,cffi:chrome=0.7  # 离线推演选臂策略
+    recon advise recon/forum/evidence.jsonl         # 证据行 → 下一步动作（JSON 契约）
     recon surface <url>                             # 站点 JS 采集面（静态）
     recon fp collect --via cffi --out chrome.json
     recon fp diff baseline.json chrome.json
@@ -30,7 +31,7 @@
     doctor → preflight.sh    quick → quick-check.sh    shape → shape.py
     matrix → client-matrix.sh canary → canary.py       fetch → fetch-page.py
     crawl → crawl.py         surface → js-surface.py  fp    → fp-echo.py
-    bandit → bandit.py       plan  → plan.py
+    bandit → bandit.py       plan  → plan.py          advise → advise.py
     stats → stats.py         report → report.py       check → self-check.py
 """
 
@@ -53,6 +54,7 @@ TOOLS = {
     "fetch": ("python", "fetch-page.py", "客户端阶梯取内容，失败时给 WAF 机制归类"),
     "crawl": ("python", "crawl.py", "批量取内容：多臂选举客户端臂，产出证据行"),
     "bandit": ("python", "bandit.py", "离线推演选臂策略：请求开销与成功率"),
+    "advise": ("python", "advise.py", "证据行 → 下一步动作（只读，不执行）"),
     "surface": ("python", "js-surface.py", "站点 JS 采集面：静态扫六类指纹采集与上报通道"),
     "fp": ("python", "fp-echo.py", "网络栈指纹：采集快照 / 逐字段比对"),
     "plan": ("python", "plan.py", "档案 lint + 执行计划：最早失败门 → S 级与验证步骤"),
@@ -148,7 +150,8 @@ def to_json(command, rc, out, err):
                 body["snapshot"] = json.loads(out)
             except ValueError:
                 body["ok"] = False
-    elif command in ("surface", "shape", "canary", "stats", "plan", "crawl", "bandit"):
+    elif command in ("surface", "shape", "canary", "stats", "plan", "crawl",
+                     "bandit", "advise"):
         try:
             data = json.loads(out)
             data.pop("ok", None)  # 契约：ok 只取自退出码
@@ -192,7 +195,8 @@ def main(argv):
             rest = ["--diff"] + rest
             if as_json:
                 rest.append("--json")
-    elif cmd in ("fetch", "crawl", "bandit", "surface", "shape", "canary", "stats", "plan") and as_json:
+    elif cmd in ("fetch", "crawl", "bandit", "advise", "surface", "shape", "canary",
+                 "stats", "plan") and as_json:
         rest.append("--json")
 
     # report / plan 的档案既是位置参数也是 --profile；允许 recon plan <档案>

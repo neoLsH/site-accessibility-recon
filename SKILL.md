@@ -95,6 +95,7 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 | 扩展脚本、复用量测 / 归类 / 取样能力 | [references/atoms.md](references/atoms.md) |
 | 批量取内容、多臂选臂、控预算与熔断 | [references/crawl.md](references/crawl.md) |
 | 离线推演：换选举策略值不值 | [references/bandit.md](references/bandit.md) |
+| 接 Agent / LLM：证据行 → 下一步动作（契约、提示骨架、护栏） | [references/agent.md](references/agent.md) |
 | 第一次跑，想跟着走一遍完整链路 | [references/walkthrough.md](references/walkthrough.md) |
 | 先装环境、知道用哪个工具、别踩版本坑 | [references/toolbox.md](references/toolbox.md) |
 | 做指纹分析（采集 / 自洽 / 差分 / 归因） | [references/fingerprint-methods.md](references/fingerprint-methods.md) |
@@ -114,6 +115,7 @@ recon stats before.jsonl --compare after.jsonl      # 改前改后差值 + 样�
 recon fetch <url> --selector '#content' --rung native  # 只跑一级客户端臂
 recon crawl --from urls.txt --selector '#content'   # 批量取内容：多臂选举 + 预算护栏
 recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演选臂策略
+recon advise recon/<代号>/evidence.jsonl --json      # 证据行 → 下一步动作（Agent / LLM 契约）
 ```
 
 `scripts/fingerprint-probe.js` 直接在浏览器页面里跑，不走 `recon` 入口。

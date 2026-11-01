@@ -187,6 +187,7 @@ recon <命令> [参数...] [--json]
 | `fetch` | `fetch-page.py` | 客户端臂阶梯取内容 + WAF 归类；`--rung` 只跑一级 |
 | `crawl` | `crawl.py` | 批量取内容：多臂选举客户端臂，预算 / 节流 / 熔断护栏，产出证据行与试验行 |
 | `bandit` | `bandit.py` | 离线推演选臂策略：给定胜率比较请求开销与成功率，不发请求 |
+| `advise` | `advise.py` | 证据行 → 下一步动作：只读、带停止条件，`advise/1` 契约供 Agent / LLM 消费 |
 | `surface` | `js-surface.py` | 站点 JS 采集面：静态扫六类采集与上报通道 |
 | `fp` | `fp-echo.py` | `fp collect` 采集快照 / `fp diff A B` 比对 |
 | `plan` | `plan.py` | 档案 lint + 执行计划：最早失败门 → S 级与验证步骤 |
@@ -202,7 +203,7 @@ recon <命令> [参数...] [--json]
            "reason": "内容区 156 低于下限 200，且无 CSR 迹象"}]}
 ```
 
-`fp` → `{"command":"fp","diff":{"total":3,"differ":2,"fields":[...]}}`，`fetch` → `records`，`crawl` → `summary` / `pages`，`bandit` → `rates` / `rows`，`surface` → `categories` / `suggest`，`shape` → `shape` / `signals` / `explain` / `next`，`canary` → `verdict` / `flip_rate` / `content` / `compare`，`stats` → `overall` / `groups`（`--compare` 时另有 `mode` / `baseline` / `current` / `compare`），`plan` → `lint` / `blocking` / `steps`，`check` → `failures`，`report` → `out` / `report`。`ok` 直接取自退出码，所以「有 URL 不可行」「两份指纹有差异」「这次抓取翻转了」「相对基线回归了」「预算/熔断提前停止」都是 `false`。
+`fp` → `{"command":"fp","diff":{"total":3,"differ":2,"fields":[...]}}`，`fetch` → `records`，`crawl` → `summary` / `pages`，`bandit` → `rates` / `rows`，`advise` → `schema` / `evidence` / `findings` / `next`，`surface` → `categories` / `suggest`，`shape` → `shape` / `signals` / `explain` / `next`，`canary` → `verdict` / `flip_rate` / `content` / `compare`，`stats` → `overall` / `groups`（`--compare` 时另有 `mode` / `baseline` / `current` / `compare`），`plan` → `lint` / `blocking` / `steps`，`check` → `failures`，`report` → `out` / `report`。`ok` 直接取自退出码，所以「有 URL 不可行」「两份指纹有差异」「这次抓取翻转了」「相对基线回归了」「预算/熔断提前停止」都是 `false`。
 
 想当全局命令用：
 
@@ -262,6 +263,7 @@ references/
   atoms.md                    # 原子层：度量 / 归类 / 合规 / 取样 / 节奏 / 证据 / 选举
   crawl.md                    # 批量采集：多臂选举、护栏、证据行与试验行
   bandit.md                   # 离线推演：胜率来源、指标读法、偏差与限制
+  agent.md                    # Agent / LLM 接口：advise/1 契约、动作优先级、提示骨架与护栏
   walkthrough.md              # 端到端走查（本地示例站，不碰真实目标）
   cases/                      # 脱敏案例（推理链）
 assets/
@@ -274,7 +276,7 @@ assets/
     README.md                 # 工作区约定：命名、规矩、重来一次
     raw/.gitkeep              # 原始响应体目录
 scripts/
-  recon.py                    # 统一入口：doctor / quick / shape / matrix / canary / stats / fetch / crawl / bandit / surface / fp / plan / report / check
+  recon.py                    # 统一入口：doctor / quick / shape / matrix / canary / stats / fetch / crawl / bandit / advise / surface / fp / plan / report / check
   preflight.sh                # 环境自检（必需 / 可选工具与版本）
   quick-check.sh              # 可行性快筛（robots 检查 + 1 请求 + 内容区）
   shape.py                    # 单响应形态分类（启发式，可 --html 离线 / --explain / --signals）
@@ -286,12 +288,13 @@ scripts/
   fetch-page.py               # 客户端臂阶梯取内容 + WAF 归类（--rung 只跑一级）
   crawl.py                    # 批量取内容：MAB 选臂 + 预算 / 节流 / 熔断 + 证据行
   bandit.py                   # 离线推演选臂策略：胜率 → 请求开销与成功率（不发请求）
-  reconlib/                   # 原子层：measure / classify / robots / fetch / pacing / evidence / policy / simulate（唯一口径来源）
+  advise.py                   # 证据行 → 下一步动作：只读、带停止条件（advise/1 契约）
+  reconlib/                   # 原子层：measure / classify / robots / fetch / pacing / evidence / policy / simulate / advice（唯一口径来源）
   js-surface.py               # 站点 JS 采集面静态扫描
   plan.py                     # 档案 lint + 执行计划推导
   report.py                   # 从 profile.yaml + evidence.csv 生成报告
   self-check.py               # 结构、脱敏、脚本语法与冒烟校验（--tests 一并跑行为测试）
-tests/                        # stdlib unittest：原子 / 取值 / 形态 / 概率门 / 指标 / 计划 / 节奏 / 证据 / 选举 / 批量采集 / 推演（本地 server，无外网）
+tests/                        # stdlib unittest：原子 / 取值 / 形态 / 概率门 / 指标 / 计划 / 节奏 / 证据 / 选举 / 批量采集 / 推演 / 建议（本地 server，无外网）
 adapters/
   README.md
   install.sh
@@ -309,7 +312,7 @@ python3 scripts/self-check.py            # 结构 / 脱敏 / 脚本语法 / 冒�
 python3 -m unittest discover -s tests -v # 行为测试（本地 fixture，无外网）
 ```
 
-覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识，扫描范围含示例站与 fixture）、全部脚本与测试语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行、**案例结构**（章节齐全、编号规范、置信度已标）、**版本记录**（`CHANGELOG.md` 含当前版本）、**执行计划可运行**（模板与示例档案 lint 均无 ERROR）、**节流护栏**（`canary` 的 pass 上限与默认间隔）、**形态判据表**（可解析且被 `shape.py` 默认加载）、**双指标口径**（示例证据行结算为 6/7 可访问、4/6 完整）、**改前改后对比**（示例整体仅完整率改善、小样本判不足、无回归）、**原子层契约**（`reconlib` 可导入、度量与归类口径稳定、`fetch-page` 复用）、**批量采集护栏**（`crawl` 的 pages / requests / 间隔 / 熔断常量受限，试验行被 `stats` 拒绝）、**离线推演**（`bandit` 不发请求、同 seed 可复现，示例试验行估出 0.40 / 0.75）、**行为测试接入**（`tests/` 用例已进 CI）。`python3 scripts/self-check.py --tests` 会顺带跑一遍行为测试。退出码非 0 即不可发布。
+覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识，扫描范围含示例站与 fixture）、全部脚本与测试语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行、**案例结构**（章节齐全、编号规范、置信度已标）、**版本记录**（`CHANGELOG.md` 含当前版本）、**执行计划可运行**（模板与示例档案 lint 均无 ERROR）、**节流护栏**（`canary` 的 pass 上限与默认间隔）、**形态判据表**（可解析且被 `shape.py` 默认加载）、**双指标口径**（示例证据行结算为 6/7 可访问、4/6 完整）、**改前改后对比**（示例整体仅完整率改善、小样本判不足、无回归）、**原子层契约**（`reconlib` 可导入、度量与归类口径稳定、`fetch-page` 复用）、**批量采集护栏**（`crawl` 的 pages / requests / 间隔 / 熔断常量受限，试验行被 `stats` 拒绝）、**离线推演**（`bandit` 不发请求、同 seed 可复现，示例试验行估出 0.40 / 0.75）、**建议层**（`advise` 只读、示例判补样本、噪声剔出分母、试验行被拒、建议带停止条件）、**行为测试接入**（`tests/` 用例已进 CI）。`python3 scripts/self-check.py --tests` 会顺带跑一遍行为测试。退出码非 0 即不可发布。
 
 行为测试用 stdlib `unittest` + 本地 `ThreadingHTTPServer`，不访问外网、不需要浏览器；CI 每次 push / PR 各跑一遍。
 
