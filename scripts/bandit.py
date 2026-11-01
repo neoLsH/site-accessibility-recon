@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """bandit.py — 离线推演：给定每臂胜率，比较选臂策略的请求开销与成功率。
 
-不联网、不发请求。胜率来源三选一：
+不联网、不发请求。胜率来源四选一：
     --arms        native=0.4,cffi:chrome=0.7
     --trials      crawl 产出的试验行 JSONL（只取可归因、非限频的尝试）
     --rates-json  按上下文分组的胜率（每组独立选臂、独立更新后验）
+    --policy-in   上一轮另存的策略档案（recon-policy/1，按上下文分桶）
 
 推演回答“如果这个胜率成立，thompson / ucb1 / fixed / round_robin 谁更省请求”，
 不替代真实对照：胜率本身仍须来自观测，推演不产生新证据。
@@ -13,6 +14,7 @@
     scripts/bandit.py --arms native=0.4,cffi:chrome=0.7 --pages 200 --seed 7
     scripts/bandit.py --trials recon/demo/trials.jsonl --json
     scripts/bandit.py --rates-json rates.json --pages 200 --json
+    scripts/bandit.py --policy-in recon/policy.json --json
 
 退出码: 0 成功；2 用法或输入错误
 """
@@ -21,7 +23,7 @@ import argparse
 import json
 import sys
 
-from reconlib import evidence, fetch, simulate
+from reconlib import evidence, fetch, policy_store, simulate
 from reconlib.policy import ALGORITHMS
 
 
@@ -84,11 +86,15 @@ def load_contexts(path):
 
 
 def rates_from_args(args):
-    sources = [bool(args.arms), bool(args.trials), bool(args.rates_json)]
+    sources = [bool(args.arms), bool(args.trials), bool(args.rates_json),
+               bool(args.policy_in)]
     if sum(sources) != 1:
-        raise ValueError("--arms / --trials / --rates-json 必须三选一")
+        raise ValueError("--arms / --trials / --rates-json / --policy-in 必须四选一")
     if args.rates_json:
         return load_contexts(args.rates_json), "rates-json"
+    if args.policy_in:
+        body = policy_store.load(args.policy_in)
+        return policy_store.context_rates(body), "policy-in"
     if args.arms:
         rates = simulate.parse_rates(args.arms)
         for arm in rates:
@@ -145,6 +151,8 @@ def main():
     ap.add_argument("--trials", help="从试验行 JSONL 估计胜率（crawl --trial-out 的产物）")
     ap.add_argument("--rates-json",
                     help="按上下文分组的胜率 JSON：{\"contexts\": [{context, pages, rates}]}")
+    ap.add_argument("--policy-in",
+                    help="上一轮的策略档案（recon-policy/1），按上下文分桶推演")
     ap.add_argument("--pages", type=int, default=200, help="模拟页数，默认 200")
     ap.add_argument("--policies", default="thompson,ucb1,fixed,round_robin",
                     help="逗号分隔的策略列表")
@@ -163,7 +171,7 @@ def main():
 
     rows = []
     contexts = {}
-    if source == "rates-json":
+    if source in ("rates-json", "policy-in"):
         rows = [simulate.simulate_contexts(
                     name, rates, pages=args.pages, seed=args.seed,
                     min_pulls=args.min_pulls) for name in pump]

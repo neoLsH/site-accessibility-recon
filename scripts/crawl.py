@@ -29,7 +29,7 @@ import argparse
 import json
 import os
 import sys
-from reconlib import evidence, fetch
+from reconlib import evidence, fetch, policy_store
 from reconlib.policy import ALGORITHMS
 
 MAX_PAGES = 50
@@ -52,7 +52,11 @@ def crawl(urls, args):
         min_pulls=args.min_pulls, delay=args.delay, timeout=args.timeout,
         ua=args.ua, max_consecutive_blocked=args.max_consecutive_blocked,
         save=save, require=require, permission=args.i_have_permission,
-        cost_weight=args.cost_weight)
+        cost_weight=args.cost_weight, prior_strength=args.prior_strength,
+        half_life=args.half_life)
+    policy_in = None
+    if args.policy_in:
+        policy_in = policy_store.restore(session.bandit, args.policy_in)
 
     pages, requests, stopped = [], 0, None
     warned = set()
@@ -107,8 +111,19 @@ def crawl(urls, args):
         "policy": args.policy,
         "arms": arm_list,
         "seed": args.seed,
+        "policy_in": policy_in,
+        "policy_out": None,
         "hosts": [session.snapshot(h) for h in hosts],
     }
+    if args.policy_out:
+        try:
+            summary["policy_out"] = policy_store.dump(
+                session.bandit, args.policy_out,
+                meta={"command": "crawl", "requests": requests,
+                      "pages": len(pages)})["path"]
+        except (OSError, ValueError) as e:
+            print(f"# 警告：策略保存失败: {e}", file=sys.stderr)
+            summary["policy_out_error"] = str(e)
     return pages, summary, ev_rows, trials
 
 
@@ -150,6 +165,12 @@ def main():
     ap.add_argument("--min-pulls", type=int, default=1, help="每臂预热次数，默认 1")
     ap.add_argument("--cost-weight", type=float, default=0.1,
                     help="成本惩罚权重（5000ms 归一化），默认 0.1；0 关闭")
+    ap.add_argument("--prior-strength", type=float, default=4.0,
+                    help="分层先验伪计数，默认 4；0 关闭")
+    ap.add_argument("--half-life", type=float, default=0.0,
+                    help="按更新次数指数遗忘的半衰期，默认 0（不遗忘）")
+    ap.add_argument("--policy-in", help="读取上一轮策略档案（recon-policy/1）")
+    ap.add_argument("--policy-out", help="把本轮后验写到该路径，供下一轮热启动")
     ap.add_argument("--max-pages", type=int, default=MAX_PAGES,
                     help=f"最多处理多少 URL，默认 {MAX_PAGES}")
     ap.add_argument("--max-requests", type=int, default=MAX_REQUESTS,
@@ -175,6 +196,10 @@ def main():
         ap.error("--delay 不能为负")
     if args.cost_weight < 0:
         ap.error("--cost-weight 不能为负")
+    if args.prior_strength < 0:
+        ap.error("--prior-strength 不能为负")
+    if args.half_life < 0:
+        ap.error("--half-life 不能为负")
     from reconlib import arms as armreg
     try:
         registry = armreg.load(args.arms_file)
@@ -198,7 +223,10 @@ def main():
         return 2
     urls = [u if u.startswith(("http://", "https://")) else f"https://{u}" for u in urls]
 
-    pages, summary, ev_rows, trials = crawl(urls, args)
+    try:
+        pages, summary, ev_rows, trials = crawl(urls, args)
+    except ValueError as e:
+        ap.error(str(e))
     rc = 0 if summary["stopped"] is None else 1
     if args.json:
         print(json.dumps({

@@ -1,3 +1,4 @@
+import json
 import unittest
 
 import support
@@ -71,6 +72,30 @@ class QuickTest(unittest.TestCase):
             support.os.unlink(cfg)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(data["rows"][0]["verdict"], "可行·HTTP")
+
+
+    def test_policy_artifact_written(self):
+        path = support.temp_path(".json")
+        try:
+            routes = {"/ok": lambda h: support.response(h, 200, support.long_html())}
+            with support.serve(routes) as base:
+                r = support.run("quick", base + "/ok", *OPTS, "--policy-out", path)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(path, encoding="utf-8") as f:
+                body = json.load(f)
+            self.assertEqual(body["schema"], "recon-policy/1")
+            self.assertGreaterEqual(body["contexts"], 1)
+        finally:
+            support.os.unlink(path)
+
+    def test_bad_policy_in_is_usage_error(self):
+        path = support.write_temp('{"schema": "other"}')
+        try:
+            r = support.run("quick", "http://127.0.0.1:9/x", *OPTS,
+                            "--policy-in", path)
+        finally:
+            support.os.unlink(path)
+        self.assertEqual(r.returncode, 2)
 
 
 if __name__ == "__main__":

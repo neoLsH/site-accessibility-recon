@@ -16,7 +16,8 @@
 | 站点 JS 采集面 | `scripts/js-surface.py` | 手工 grep bundle | 静态命中 ≠ 运行时调用，需动态确认 |
 | 取内容（阶梯） | `scripts/fetch-page.py` | 手工逐级 curl | 失败时顺带给出 WAF 归类；`--rung` 只跑一级 |
 | 批量取内容 | `scripts/crawl.py` | 循环 curl + 手写重试 | MAB 选臂 + 预算 / 节流 / 熔断，见 [crawl.md](crawl.md) |
-| 选臂上下文与成本 | `reconlib/context.py` + `ContextualBandit` | 手写按路由分支 | 键、回退链与奖励见 [strategy.md](strategy.md) |
+| 选臂上下文与成本 | `reconlib/context.py` + `ContextualBandit` | 手写按路由分支 | 键、回退链、先验与遗忘见 [strategy.md](strategy.md) |
+| 跨轮复用选臂后验 | `--policy-in` / `--policy-out`（`recon-policy/1`） | 手抄胜率 | 原子写、损坏即报错；只存计数，不含响应体 / Cookie |
 | 推演选臂策略 | `scripts/bandit.py` | 直接换策略上线 | 离线比较请求开销，不发请求，见 [bandit.md](bandit.md) |
 | 证据行 → 下一步动作 | `scripts/advise.py` | 自己凭感觉选下一步 | 只读、带停止条件，供 Agent / LLM 消费，见 [agent.md](agent.md) |
 | 复用量测 / 归类 / 取样 | `scripts/reconlib/` | 复制脚本片段 | 原子层只有一份口径，见 [atoms.md](atoms.md) |

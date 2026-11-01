@@ -25,7 +25,7 @@
 | `noise`（5xx / 链路） | 不更新 | 指数退避 | 该页结束 |
 | `blocked`（不可归因，未归类） | 不更新 | 计数 +1 | 该页结束 |
 
-`thompson` 是默认策略：每臂维护 Beta 后验，按采样值选臂，冷启动用 `--min-pulls` 各试一次。也可选 `ucb1`、`fixed`（按给定顺序）、`round_robin`；`--seed` 固定后 `thompson` 可复现。慢臂按 5000ms 归一化扣分，`--cost-weight` 默认 `0.1`，`0` 关闭。未配置或缺少 `--require` 能力的臂会记成 `skipped`，**不计请求预算、不触发熔断**，也不参与策略更新。
+`thompson` 是默认策略：每臂维护 Beta 后验，按采样值选臂，冷启动用 `--min-pulls` 各试一次。也可选 `ucb1`、`fixed`（按给定顺序）、`round_robin`；`--seed` 固定后 `thompson` 可复现。慢臂按 5000ms 归一化扣分，`--cost-weight` 默认 `0.1`，`0` 关闭。`--prior-strength` 默认 `4`，从相邻上下文借先验解决冷启动；`--half-life` 默认 `0`（不遗忘），站点规则漂移时再开。未配置或缺少 `--require` 能力的臂会记成 `skipped`，**不计请求预算、不触发熔断**，也不参与策略更新。
 
 ## 护栏（默认值即红线）
 
@@ -53,8 +53,14 @@
 recon crawl --from urls.txt --selector '#content' \
     --arms native,cffi:chrome,browser:chromium --policy thompson --seed 7 \
     --arms-file ~/.config/site-recon/arms.json --cost-weight 0.1 \
+    --prior-strength 4 --half-life 0 \
     --evidence-out recon/demo/evidence.jsonl \
-    --trial-out recon/demo/trials.jsonl
+    --trial-out recon/demo/trials.jsonl \
+    --policy-out recon/demo/policy.json
+
+# 下一轮接着学：先恢复上一轮后验，再写回同一档案
+recon crawl --from urls-b.txt --selector '#content' \
+    --policy-in recon/demo/policy.json --policy-out recon/demo/policy.json
 
 recon stats recon/demo/evidence.jsonl          # 跑完直接结算
 ```
@@ -67,6 +73,7 @@ recon stats recon/demo/evidence.jsonl          # 跑完直接结算
 - 把试验行喂给 `stats`：分母会变成“尝试次数”，不是“页面数”。
 - 用 `crawl` 反复重试同一批被 blocked 的 URL：熔断后应换数据源或降级口径，而不是继续加请求。
 - 在多个 host 之间共享一个策略：胜率会被平均掉，选臂失去意义。
+- 把策略档案当跨站通用配置：档案里带 host 与路由键，换目标要另存一份；恢复时未知臂会被忽略，但已知臂的旧胜率仍会被带进来。
 
 ## 跑完之后
 

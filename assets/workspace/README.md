@@ -10,6 +10,7 @@ recon/
 └── <代号>/           # 一个目标一个目录
     ├── profile.yaml  # P0 站点档案，机器可读，交给执行侧消费
     ├── evidence.csv  # 证据矩阵原始行
+    ├── policy.json   # 选臂后验（--policy-out，下一轮 --policy-in 热启动）
     ├── report.md     # 人读报告，由 report.py 生成
     └── notes.md      # 推理链、误判、未解问题
 ```
@@ -27,8 +28,12 @@ recon/
 cp -R <skill 目录>/assets/workspace/. ./recon/
 
 scripts/matrix.py <url> --selector '#content' --save-html recon/raw
+scripts/crawl.py --from urls.txt --selector '#content' \
+    --policy-out recon/<代号>/policy.json
 scripts/report.py --profile recon/<代号>/profile.yaml --out recon/<代号>/report.md
 ```
+
+`policy.json` 只保存上下文计数与配置快照，不含响应体 / Cookie / 凭证；换目标时另存一份，别跨站复用。
 
 重来一次：删掉 `<代号>/` 和对应的 `raw/` 文件即可，骨架不动。
 

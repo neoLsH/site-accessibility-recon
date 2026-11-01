@@ -36,7 +36,7 @@ class ArmSession:
                  min_pulls=1, delay=pacing.DEFAULT_DELAY, timeout=20,
                  ua=UA_DEFAULT, max_consecutive_blocked=3, save=None,
                  require=(), permission=False, clock=None, sleep=None,
-                 cost_weight=0.1):
+                 cost_weight=0.1, prior_strength=4.0, half_life=0.0):
         from . import arms as armreg
         self.registry = registry or armreg.load()
         self.arms = [self.registry.get(name) for name in arm_names]
@@ -46,7 +46,8 @@ class ArmSession:
             raise ValueError(f"未知策略 {policy!r}")
         self.bandit = ContextualBandit(
             [a.name for a in self.arms], algorithm=policy, seed=seed,
-            min_pulls=min_pulls, cost_weight=cost_weight)
+            min_pulls=min_pulls, cost_weight=cost_weight,
+            prior_strength=prior_strength, half_life=half_life)
         kw = {"delay": delay,
               "max_consecutive_blocked": max_consecutive_blocked}
         if clock is not None:

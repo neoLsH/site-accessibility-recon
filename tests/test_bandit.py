@@ -110,6 +110,58 @@ class BanditCliTest(unittest.TestCase):
                     os.unlink(path)
                 self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
 
+    def test_policy_in_source(self):
+        path = support.write_temp(json.dumps({
+            "schema": "recon-policy/1",
+            "arms": ["native", "cffi:chrome"],
+            "state": {
+                "example.test|article|content": {
+                    "arms": {"native": [10, 8.0, 2.0, 0.0, 0],
+                             "cffi:chrome": [5, 4.0, 1.0, 0.0, 0]},
+                    "rr": 0,
+                }
+            },
+        }))
+        try:
+            r, data = support.run_json("bandit", "--policy-in", path,
+                                       "--policies", "thompson", *BASE)
+        finally:
+            os.unlink(path)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(data["source"], "policy-in")
+        self.assertEqual(data["rates"], {})
+        self.assertEqual(list(data["contexts"]),
+                         ["example.test|article|content"])
+        self.assertEqual(data["contexts"]["example.test|article|content"]["pages"], 15)
+        self.assertEqual([row["policy"] for row in data["rows"]], ["thompson"])
+
+    def test_policy_in_validation(self):
+        for payload in ({"schema": "other", "state": {}},
+                        {"schema": "recon-policy/1", "state": {}}):
+            with self.subTest(payload=payload):
+                path = support.write_temp(json.dumps(payload))
+                try:
+                    r = support.run("bandit", "--policy-in", path, *BASE)
+                finally:
+                    os.unlink(path)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        r = support.run("bandit", "--policy-in", "/nonexistent/policy.json", *BASE)
+        self.assertEqual(r.returncode, 2)
+
+    def test_policy_in_is_exclusive_with_other_sources(self):
+        path = support.write_temp(json.dumps({
+            "schema": "recon-policy/1",
+            "arms": ["native"],
+            "state": {"a|article|content": {
+                "arms": {"native": [4, 2.0, 2.0, 0.0, 0]}, "rr": 0}},
+        }))
+        try:
+            r = support.run("bandit", "--arms", "native=0.5",
+                            "--policy-in", path, *BASE)
+        finally:
+            os.unlink(path)
+        self.assertEqual(r.returncode, 2)
+
     def test_table_output(self):
         r = support.run("bandit", "--arms", "native=0.2,cffi:chrome=0.9",
                         "--pages", "20", "--seed", "7")

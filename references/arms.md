@@ -94,7 +94,9 @@ userinfo（`http://user:pass@host/`）——适配器不接受凭证。
 
 臂的胜率不是全局一个数，而是按 `host|路由类|响应类` 分别累计；样本不足时沿
 `host|route|response → host|route|* → host|*|* → *` 回退聚合。慢臂按 5000ms
-归一化扣分，`--cost-weight` 默认 `0.1`，`0` 关闭。
+归一化扣分，`--cost-weight` 默认 `0.1`，`0` 关闭；`--prior-strength` 默认 `4`
+从相邻上下文借先验，`--half-life` 默认 `0`（不遗忘）。`--policy-in` / `--policy-out`
+可把后验跨轮复用（`recon-policy/1`，仓库外档案）。
 
 `degraded` 记半个奖励，`auth` / `missing` / `noise` / 限频不更新后验。完整规则、
 各能力点的选臂语义与读法见 [strategy.md](strategy.md)。

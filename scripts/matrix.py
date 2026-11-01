@@ -16,7 +16,7 @@ import sys
 from urllib import request as urlrequest
 
 from reconlib import arms as armreg
-from reconlib import fetch, measure
+from reconlib import fetch, measure, policy_store
 from reconlib.session import ArmSession
 
 DEFAULT_ARMS = "native,cffi:chrome"
@@ -154,6 +154,12 @@ def build_parser():
                     help="同 host 请求间隔，默认 5s")
     ap.add_argument("--cost-weight", type=float, default=0.1,
                     help="成本惩罚权重（5000ms 归一化），默认 0.1；0 关闭")
+    ap.add_argument("--prior-strength", type=float, default=4.0,
+                    help="同 host 邻近上下文的先验强度，默认 4.0；0 关闭")
+    ap.add_argument("--half-life", type=float, default=0.0,
+                    help="指数遗忘半衰期（样本数），默认 0 = 不遗忘")
+    ap.add_argument("--policy-in", help="热启动：读取策略档案（recon-policy/1）")
+    ap.add_argument("--policy-out", help="本轮结束后把策略后验写到该路径")
     ap.add_argument("--timeout", type=int, default=20, help="单请求超时，默认 20s")
     ap.add_argument("--ua", default=fetch.UA_DEFAULT, help="统一 User-Agent")
     ap.add_argument("--tls-echo", action="store_true",
@@ -190,6 +196,10 @@ def main(argv=None):
         ap.error("--min-content 不能为负")
     if args.cost_weight < 0:
         ap.error("--cost-weight 不能为负")
+    if args.prior_strength < 0:
+        ap.error("--prior-strength 不能为负")
+    if args.half_life < 0:
+        ap.error("--half-life 不能为负")
 
     registry, arm_list = _arm_list(args, ap)
     try:
@@ -213,7 +223,13 @@ def main(argv=None):
         arm_list, registry=registry, policy=args.policy, seed=args.seed,
         delay=args.delay, timeout=args.timeout, ua=args.ua,
         permission=args.i_have_permission, require=require, save=save,
-        cost_weight=args.cost_weight)
+        cost_weight=args.cost_weight, prior_strength=args.prior_strength,
+        half_life=args.half_life)
+    if args.policy_in:
+        try:
+            policy_store.restore(session.bandit, args.policy_in)
+        except ValueError as e:
+            ap.error(str(e))
 
     rows = []
     halted = None
@@ -231,6 +247,16 @@ def main(argv=None):
                   f"{(': ' + page['reason']) if page.get('reason') else ''}",
                   file=sys.stderr)
             break
+
+    if args.policy_out:
+        try:
+            saved = policy_store.dump(
+                session.bandit, args.policy_out,
+                meta={"command": "matrix", "url": args.url,
+                      "passes": args.passes})
+            print(f"# 策略 -> {saved['path']}", file=sys.stderr)
+        except (OSError, ValueError) as e:
+            print(f"# 警告：策略保存失败: {e}", file=sys.stderr)
 
     header = ["client", "identity", "http", "bytes"]
     if args.selector:

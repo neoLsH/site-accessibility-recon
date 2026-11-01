@@ -57,5 +57,6 @@ reconlib 原子（度量 / 归类 / robots / 取样 / 节奏 / 证据 / 上下�
 | 想按证据自动决定下一步 | Agent（`advise`） |
 | 要把结果讲给人听、写进报告 | LLM（读 `advise/1`） |
 | 只是想比较选举策略 | `bandit`（离线旁支） |
+| 想把这一轮学到的选臂后验留给下一轮 | `crawl` / `quick` / `matrix` / `fetch` 的 `--policy-out`，下一轮 `--policy-in` |
 
 Agent 与 LLM 的接入细节见 [agent.md](agent.md)；命令与退出码见 [cli.md](cli.md)。

@@ -4,6 +4,35 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.16.0] — 2026-11-02
+
+把选臂从“本轮学”推进到“跨轮学”：冷启动有先验、规则漂移可遗忘、诊断能回答“继续试还是收手”，后验可落盘并在下一轮热启动。
+
+### 新增
+
+- `ContextualBandit` 的分层经验先验：`--prior-strength`（默认 `4.0`）从相邻上下文借伪计数；先验只参与打分，不改本地 `pulls`，`--min-pulls` 判断仍看本地样本。
+- 指数遗忘：`--half-life N` 在每次更新前按 `0.5 ** (1/N)` 衰减全部计数；默认 `0`（不遗忘）。
+- 诊断字段：Wilson `ci95`、确定性蒙特卡洛 `p_best`（400 次）、`utility`、`n_eff`、`confidence` 与 `decision`（`>= 0.8` 且有效样本 `>= 4` 才 `exploit`，单臂恒 `exploit`）。
+- `reconlib/policy_store.py`：策略档案 `recon-policy/1`，原子写（临时文件 + fsync + rename）、大小上限、结构与状态校验；`restore` 忽略未知臂，`context_rates` 把档案转成 `--rates-json` 同构输入。
+- `crawl` / `fetch` / `quick` / `matrix` 的 `--policy-in` / `--policy-out`；`bandit --policy-in` 作为第四个胜率来源。
+- `references/strategy.md` 增加分层先验、遗忘窗口、诊断、跨轮热启动四节。
+- `tests/test_policy_prior.py`（10 个）、`tests/test_policy_store.py`（7 个），并在 `crawl` / `quick` / `matrix` / `bandit` 补档案与来源用例。
+- 自检新增策略记忆门禁：先验 / 遗忘 / 诊断 / 档案往返，以及四个采集入口与 `bandit` 的参数接入。
+
+### 变更
+
+- `crawl` 摘要新增 `policy_in` / `policy_out`（失败时 `policy_out_error`）；档案默认写 `recon/`，与证据行、试验行同一工作区。
+- `ArmSession` 把 `prior_strength` / `half_life` 传给 `ContextualBandit`；档案里的同名配置只作记录，不覆盖本轮 CLI。
+- `SKILL.md` 版本升到 1.16.0；`README.md`、`AGENTS.md`、`atoms.md`、`arms.md`、`cli.md`、`crawl.md`、`bandit.md`、`agent.md`、`forms.md`、`toolbox.md`、`assets/workspace/README.md` 同步。
+
+### 已知限制
+
+- 分层先验会把相邻上下文的胜率带进来；站点内差异很大或外部内核质量参差时，用 `--prior-strength 0` 关掉再比较。
+- 遗忘默认关闭；开启后旧证据按半衰期衰减，样本很少时会让后验收缩过快。
+- `decision` 只是诊断提示，不改变 `select` 的探索行为；要强制收手需显式换 `fixed`。
+- 策略档案含 host 与路由键，不是匿名配置；跨目标复用前先确认作用域，且它不覆盖本轮 `--prior-strength` / `--half-life`。
+- `bandit --policy-in` 只取有本地样本的格；档案里没有样本的上下文不会进入推演。
+
 ## [1.15.0] — 2026-11-02
 
 把选臂从“按 host 学胜率”推进到“按上下文 + 成本学”，并让每个发请求的能力点都走同一套选臂。

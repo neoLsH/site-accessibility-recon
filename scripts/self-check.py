@@ -24,7 +24,8 @@
  20. 离线推演：bandit 不发请求、同 seed 可复现，示例试验行口径正确
  21. 臂注册表：外部臂按配置可用、未配置 browser 不可用、render 不经 shell
  22. 策略上下文：上下文键 / 回退链稳定，quick/matrix 薄壳转调 Python，bandit 支持分组推演
- 23. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 23. 策略记忆：分层先验 / 遗忘 / 诊断 / 档案往返，四个采集入口与 bandit 全部接入
+ 24. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -105,6 +106,7 @@ REQUIRED = [
     "scripts/reconlib/evidence.py",
     "scripts/reconlib/context.py",
     "scripts/reconlib/policy.py",
+    "scripts/reconlib/policy_store.py",
     "scripts/reconlib/simulate.py",
     "scripts/reconlib/advice.py",
     "scripts/reconlib/arms.py",
@@ -134,6 +136,8 @@ REQUIRED = [
     "tests/test_session.py",
     "tests/test_context.py",
     "tests/test_policy_context.py",
+    "tests/test_policy_prior.py",
+    "tests/test_policy_store.py",
     "tests/test_quick.py",
     "tests/test_matrix.py",
 ]
@@ -789,6 +793,68 @@ assert row["context"] == "h|article|content" and row["cost_ms"] == 42
     ok("策略上下文：键与回退链稳定、quick/matrix 薄壳转调 Python、bandit 支持分组推演")
 
 
+def check_policy_memory():
+    """跨轮复用是策略层的能力边界：先验 / 遗忘 / 诊断 / 档案往返必须同时成立。"""
+    code = """
+import os, sys, tempfile
+sys.path.insert(0, "scripts")
+from reconlib import policy, policy_store
+
+a = policy.ContextualBandit(["native", "cffi:chrome"], seed=3)
+a.update("h", "article|challenge", "native", "blocked")
+a.update("h", "article|challenge", "cffi:chrome", "ok")
+assert a.snapshot("h", "article|challenge")["best_arm"] == "cffi:chrome"
+
+cold = policy.ContextualBandit(["native", "cffi:chrome"], seed=3)
+row = cold.snapshot("h", "article|content")["arms"][0]
+assert row["pulls"] == 0 and row["n_eff"] > 0, "邻近上下文先验未生效"
+
+f = policy.ContextualBandit(["native"], half_life=10, seed=1)
+f.update("h", "article|content", "native", "blocked")
+for _ in range(10):
+    f.update("h", "article|content", "native", "ok")
+assert f.snapshot("h", "article|content")["arms"][0]["mean"] > 0.6, "遗忘未生效"
+
+snap = a.snapshot("h", "article|challenge")
+assert 0.0 <= snap["confidence"] <= 1.0
+assert snap["decision"] in ("exploit", "explore")
+assert {row["arm"] for row in snap["arms"]} == {"native", "cffi:chrome"}
+assert all(0.0 <= row["p_best"] <= 1.0 for row in snap["arms"])
+
+fd, path = tempfile.mkstemp(suffix=".json")
+os.close(fd)
+try:
+    policy_store.dump(a, path, meta={"command": "self-check"})
+    c = policy.ContextualBandit(["native", "cffi:chrome"], seed=3)
+    info = policy_store.restore(c, path)
+    assert info["contexts"] == 1, info
+    assert c.snapshot("h", "article|challenge") == snap, "档案往返后后验不一致"
+    body = policy_store.load(path)
+    assert body["schema"] == policy_store.SCHEMA
+    assert policy_store.context_rates(body)
+finally:
+    os.unlink(path)
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("策略记忆契约异常: " + " | ".join(tail))
+        return
+
+    flags = ("--prior-strength", "--half-life", "--policy-in", "--policy-out")
+    for p in ("scripts/crawl.py", "scripts/fetch-page.py",
+              "scripts/quick.py", "scripts/matrix.py"):
+        lost = [f for f in flags if f not in read(p)]
+        if lost:
+            fail(f"{p} 缺少策略参数: {', '.join(lost)}")
+            return
+    if "--policy-in" not in read("scripts/bandit.py"):
+        fail("bandit 未支持 --policy-in 推演")
+        return
+    ok("策略记忆：先验 / 遗忘 / 诊断 / 档案往返成立，四入口与 bandit 已接入")
+
+
 def check_crawl_guard():
     """批量采集是唯一会连发请求的入口：预算 / 间隔 / 熔断必须写在代码里，不靠口头约定。"""
     body = read("scripts/crawl.py")
@@ -1007,6 +1073,7 @@ def main():
     check_atoms_contract()
     check_arms_guard()
     check_strategy_context()
+    check_policy_memory()
     check_crawl_guard()
     check_bandit_smoke()
     check_advice_smoke()

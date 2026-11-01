@@ -27,7 +27,7 @@ import re
 import sys
 
 from reconlib import arms as armreg
-from reconlib import fetch, measure
+from reconlib import fetch, measure, policy_store
 from reconlib.session import ArmSession
 
 DEFAULT_ARMS = "native,cffi:chrome"
@@ -149,6 +149,12 @@ def build_parser():
                     help="同 host 请求间隔，默认 5s")
     ap.add_argument("--cost-weight", type=float, default=0.1,
                     help="成本惩罚权重（5000ms 归一化），默认 0.1；0 关闭")
+    ap.add_argument("--prior-strength", type=float, default=4.0,
+                    help="同 host 邻近上下文的先验强度，默认 4.0；0 关闭")
+    ap.add_argument("--half-life", type=float, default=0.0,
+                    help="指数遗忘半衰期（样本数），默认 0 = 不遗忘")
+    ap.add_argument("--policy-in", help="热启动：读取策略档案（recon-policy/1）")
+    ap.add_argument("--policy-out", help="本轮结束后把策略后验写到该路径")
     ap.add_argument("--timeout", type=int, default=20, help="单请求超时，默认 20s")
     ap.add_argument("--ua", default=fetch.UA_DEFAULT, help="统一 User-Agent")
     ap.add_argument("--skip-robots", action="store_true",
@@ -166,6 +172,10 @@ def main(argv=None):
         ap.error("--min-content 不能为负")
     if args.cost_weight < 0:
         ap.error("--cost-weight 不能为负")
+    if args.prior_strength < 0:
+        ap.error("--prior-strength 不能为负")
+    if args.half_life < 0:
+        ap.error("--half-life 不能为负")
 
     urls = list(args.urls)
     if args.from_file:
@@ -190,7 +200,13 @@ def main(argv=None):
         arm_list, registry=registry, policy=args.policy, seed=args.seed,
         delay=args.delay, timeout=args.timeout, ua=args.ua,
         permission=args.skip_robots, require=require,
-        cost_weight=args.cost_weight)
+        cost_weight=args.cost_weight, prior_strength=args.prior_strength,
+        half_life=args.half_life)
+    if args.policy_in:
+        try:
+            policy_store.restore(session.bandit, args.policy_in)
+        except ValueError as e:
+            ap.error(str(e))
 
     def warn(host):
         print(f"# 警告：{host} 的 robots.txt 取不到，合规状态未知，继续探测",
@@ -222,6 +238,15 @@ def main(argv=None):
         rows.append(row)
         if row[0] != "可行·HTTP":
             bad += 1
+
+    if args.policy_out:
+        try:
+            saved = policy_store.dump(
+                session.bandit, args.policy_out,
+                meta={"command": "quick", "urls": len(urls)})
+            print(f"# 策略 -> {saved['path']}", file=sys.stderr)
+        except (OSError, ValueError) as e:
+            print(f"# 警告：策略保存失败: {e}", file=sys.stderr)
 
     stream = sys.stdout
     stream.write("\t".join(HEADER) + "\n")

@@ -132,5 +132,42 @@ class CrawlTest(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
 
 
+    def test_policy_artifact_roundtrip(self):
+        policy = support.temp_path(".json")
+        policy2 = support.temp_path(".json")
+        try:
+            routes = {"/ok": lambda h: support.response(h, 200, support.long_html())}
+            with support.serve(routes) as base:
+                r, data = support.run_json(
+                    "crawl", base + "/ok", *BASE, "--policy-out", policy)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(data["summary"]["policy_out"],
+                                 os.path.abspath(policy))
+                with open(policy, encoding="utf-8") as f:
+                    body = json.load(f)
+                self.assertEqual(body["schema"], "recon-policy/1")
+                self.assertGreaterEqual(body["contexts"], 1)
+                r, data = support.run_json(
+                    "crawl", base + "/ok", *BASE,
+                    "--policy-in", policy, "--policy-out", policy2)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertGreaterEqual(data["summary"]["policy_in"]["contexts"], 1)
+            self.assertEqual(data["summary"]["policy_out"],
+                             os.path.abspath(policy2))
+        finally:
+            for path in (policy, policy2):
+                if os.path.exists(path):
+                    os.unlink(path)
+
+    def test_invalid_policy_in_is_usage_error(self):
+        path = support.write_temp('{"schema": "other"}')
+        try:
+            r = support.run("crawl", "http://127.0.0.1:9/x", *BASE,
+                            "--policy-in", path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(r.returncode, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

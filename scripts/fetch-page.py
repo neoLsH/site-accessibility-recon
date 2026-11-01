@@ -28,8 +28,9 @@ import sys
 import time
 
 from reconlib import arms as armreg
-from reconlib import fetch
+from reconlib import fetch, policy_store
 from reconlib.policy import ALGORITHMS
+from reconlib.session import ArmSession
 
 
 def resolve_arms(args, registry):
@@ -43,18 +44,12 @@ def resolve_arms(args, registry):
     return ["native", f"cffi:{args.impersonate}"]
 
 
-def probe(url, args, registry, arm_list):
-    from reconlib.session import ArmSession, display_arm
+def probe(url, args, registry, arm_list, session):
+    from reconlib.session import display_arm
 
     record = {"url": url, "robots": "skipped" if args.i_have_permission else None,
               "rungs": [], "verdict": None, "waf_class": None, "evidence": []}
     require = armreg.parse_require(args.require)
-    save = (lambda u, a, body: fetch.save_html(args.out_dir, u, a, body)
-            if args.out_dir else None)
-    session = ArmSession(
-        arm_list, registry=registry, policy=args.policy, delay=0.0,
-        timeout=args.timeout, ua=args.ua, save=save, require=require,
-        permission=args.i_have_permission, cost_weight=args.cost_weight)
     page = session.probe(
         url, selector=args.selector, min_content=args.min_content,
         max_attempts=len(arm_list), require=require,
@@ -153,6 +148,12 @@ def main():
                     help="选臂策略，默认 fixed（按给定顺序）")
     ap.add_argument("--cost-weight", type=float, default=0.1,
                     help="成本惩罚权重（5000ms 归一化），默认 0.1；0 关闭")
+    ap.add_argument("--prior-strength", type=float, default=4.0,
+                    help="分层先验伪计数，默认 4；0 关闭")
+    ap.add_argument("--half-life", type=float, default=0.0,
+                    help="按更新次数指数遗忘的半衰期，默认 0（不遗忘）")
+    ap.add_argument("--policy-in", help="读取上一轮策略档案（recon-policy/1）")
+    ap.add_argument("--policy-out", help="把本轮后验写到该路径，供下一轮热启动")
     ap.add_argument("--timeout", type=int, default=20)
     ap.add_argument("--delay", type=float, default=5.0, help="URL 之间的间隔，默认 5s")
     ap.add_argument("--out-dir", help="保存每级响应体")
@@ -177,21 +178,47 @@ def main():
     urls = [u if u.startswith(("http://", "https://")) else f"https://{u}" for u in urls]
     if args.cost_weight < 0:
         ap.error("--cost-weight 不能为负")
+    if args.prior_strength < 0:
+        ap.error("--prior-strength 不能为负")
+    if args.half_life < 0:
+        ap.error("--half-life 不能为负")
 
     try:
         registry = armreg.load(args.arms_file)
         arm_list = resolve_arms(args, registry)
-        armreg.parse_require(args.require)
+        require = armreg.parse_require(args.require)
     except ValueError as e:
         ap.error(str(e))
+
+    save = (lambda url, arm, body: fetch.save_html(args.out_dir, url, arm, body)
+            if args.out_dir else None)
+    session = ArmSession(
+        arm_list, registry=registry, policy=args.policy, delay=0.0,
+        timeout=args.timeout, ua=args.ua, save=save, require=require,
+        permission=args.i_have_permission, cost_weight=args.cost_weight,
+        prior_strength=args.prior_strength, half_life=args.half_life)
+    if args.policy_in:
+        try:
+            policy_store.restore(session.bandit, args.policy_in)
+        except ValueError as e:
+            ap.error(str(e))
 
     records, any_ok = [], False
     for i, url in enumerate(urls):
         if i:
             time.sleep(args.delay)
-        rec, ok = probe(url, args, registry, arm_list)
+        rec, ok = probe(url, args, registry, arm_list, session)
         records.append(rec)
         any_ok = any_ok or ok
+
+    if args.policy_out:
+        try:
+            info = policy_store.dump(
+                session.bandit, args.policy_out,
+                meta={"command": "fetch", "urls": len(urls)})
+            print(f"# 策略 -> {info['path']}", file=sys.stderr)
+        except (OSError, ValueError) as e:
+            print(f"# 警告：策略保存失败: {e}", file=sys.stderr)
 
     if args.json:
         print(json.dumps(records, ensure_ascii=False, indent=2, default=str))

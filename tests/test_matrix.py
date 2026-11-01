@@ -76,5 +76,30 @@ class MatrixTest(unittest.TestCase):
         self.assertEqual([row["client"] for row in data["rows"]], ["native"])
 
 
+    def test_policy_artifact_written(self):
+        policy = support.temp_path(".json")
+        try:
+            routes = {"/ok": lambda h: support.response(h, 200, support.long_html())}
+            with support.serve(routes) as base:
+                r = support.run("matrix", base + "/ok", *OPTS,
+                                "--policy-out", policy)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            with open(policy, encoding="utf-8") as f:
+                body = json.load(f)
+            self.assertEqual(body["schema"], "recon-policy/1")
+            self.assertGreaterEqual(body["contexts"], 1)
+        finally:
+            os.unlink(policy)
+
+    def test_bad_policy_in_is_usage_error(self):
+        path = support.write_temp('{"schema": "other"}')
+        try:
+            r = support.run("matrix", "http://127.0.0.1:9/x", *OPTS,
+                            "--policy-in", path)
+        finally:
+            os.unlink(path)
+        self.assertEqual(r.returncode, 2)
+
+
 if __name__ == "__main__":
     unittest.main()

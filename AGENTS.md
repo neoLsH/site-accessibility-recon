@@ -33,7 +33,7 @@
 
 形态与概率门是分诊的前置：`recon shape` 先认页面形态（静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空态），`recon canary` 再用同栈多 pass 判断是否概率门。单发请求推不出翻转率。
 
-选臂只在合规客户端栈之间做，按 `host|路由类|响应类` 分上下文累计胜率；`quick` 每条 URL 只发一个请求、跨 URL 学习，`matrix` 默认穷举，`canary` 固定一条臂。规则见 [strategy.md](references/strategy.md)。
+选臂只在合规客户端栈之间做，按 `host|路由类|响应类` 分上下文累计胜率；默认用 `--prior-strength 4` 从相邻上下文借先验，`--half-life 0` 不遗忘；`quick` 每条 URL 只发一个请求、跨 URL 学习，`matrix` 默认穷举，`canary` 固定一条臂。`--policy-out` / `--policy-in` 让后验跨轮复用（`recon-policy/1`）。规则见 [strategy.md](references/strategy.md)。
 
 ## 按需读取
 
@@ -80,8 +80,11 @@ scripts/recon.py fp diff a.json b.json                          # 网络指纹�
 scripts/recon.py fetch <url> --selector '#content'               # 客户端臂阶梯取内容 + WAF 归类（--rung 只跑一级）
 scripts/recon.py fetch <url> --arms browser:chromium --arms-file ~/.config/site-recon/arms.json  # 外部内核（仓库不内置）
 scripts/recon.py crawl --from urls.txt --selector '#content'     # 批量取内容：多臂选举 + 预算 / 熔断护栏
+scripts/recon.py crawl --from urls.txt --policy-out recon/<代号>/policy.json   # 存后验，下一轮热启动
+scripts/recon.py crawl --from urls2.txt --policy-in recon/<代号>/policy.json --policy-out recon/<代号>/policy.json
 scripts/recon.py bandit --arms native=0.4,cffi:chrome=0.75       # 离线推演选臂策略
 scripts/recon.py bandit --rates-json recon/<代号>/rates.json      # 按上下文分组推演（不发请求）
+scripts/recon.py bandit --policy-in recon/<代号>/policy.json      # 用上一轮策略档案推演
 scripts/recon.py advise recon/<代号>/evidence.jsonl --json        # 证据行 → 下一步动作（只读，不执行）
 scripts/recon.py surface <url>                                  # 站点 JS 采集面：采了什么、往哪上报
 scripts/recon.py plan recon/<代号>/profile.yaml                  # 档案 lint + 执行计划

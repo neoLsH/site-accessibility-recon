@@ -1,11 +1,11 @@
 ---
 name: site-accessibility-recon
-description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：识别页面形态（静态 / CSR 空壳 / 挑战页 / 登录墙 / 业务空态），区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，用多 pass 翻转率区分确定性闸门与概率门，遇 WAF 先按机制归类再选合规路径；在合规客户端臂之间按上下文与成本做 MAB 选臂，档案经 lint 后推导执行计划，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标（按路由拆分 + Wilson 区间）验证对策，改前改后按路由出差值与 Newcombe 区间、样本不足不判方向，用基线对比防回归。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，页面形态识别，概率门与翻转率，多内核选臂，上下文成本 MAB，双指标结算与回归基线，可行性快筛，bot defense triage，scrape reliability。
+description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：识别页面形态（静态 / CSR 空壳 / 挑战页 / 登录墙 / 业务空态），区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，用多 pass 翻转率区分确定性闸门与概率门，遇 WAF 先按机制归类再选合规路径；在合规客户端臂之间按上下文与成本做 MAB 选臂，用分层先验与遗忘窗口处理冷启动和规则漂移，策略档案支持跨轮热启动，档案经 lint 后推导执行计划，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标（按路由拆分 + Wilson 区间）验证对策，改前改后按路由出差值与 Newcombe 区间、样本不足不判方向，用基线对比防回归。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，页面形态识别，概率门与翻转率，多内核选臂，上下文成本 MAB，分层先验，策略热启动与跨轮策略档案，双指标结算与回归基线，可行性快筛，bot defense triage，scrape reliability。
 license: MIT
 compatibility: 需要 python3 与 curl；建议另装 curl_cffi 做浏览器级 TLS 指纹仿真。要让脚本真正联网，还需要能出网的出口；断网时自动降级为离线复核（只分析已留存的 HTML 与快照）。
 allowed-tools: Bash, Read, Write, Edit, WebFetch, Task
 metadata:
-  version: 1.15.0
+  version: 1.16.0
   scope: diagnostics
 ---
 
@@ -120,8 +120,11 @@ recon stats before.jsonl --compare after.jsonl      # 改前改后差值 + 样�
 recon fetch <url> --selector '#content' --rung native  # 只跑一级客户端臂
 recon fetch <url> --arms browser:chromium --arms-file ~/.config/site-recon/arms.json  # 外部内核
 recon crawl --from urls.txt --selector '#content'   # 批量取内容：多臂选举 + 预算护栏
+recon crawl --from urls.txt --policy-out recon/<代号>/policy.json   # 存下后验，下一轮热启动
+recon crawl --from urls2.txt --policy-in recon/<代号>/policy.json --policy-out recon/<代号>/policy.json
 recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演选臂策略
 recon bandit --rates-json recon/<代号>/rates.json    # 按上下文分组推演
+recon bandit --policy-in recon/<代号>/policy.json    # 用上一轮策略档案推演
 recon advise recon/<代号>/evidence.jsonl --json      # 证据行 → 下一步动作（Agent / LLM 契约）
 ```
 
