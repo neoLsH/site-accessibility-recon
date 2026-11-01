@@ -83,7 +83,13 @@ recon stats recon/demo/evidence.jsonl          # 跑完直接结算
 recon bandit --trials recon/demo/trials.jsonl --pages 200
 ```
 
-推演只回答“换策略值不值”，不产生新证据；偏差与读法见 [bandit.md](bandit.md)。要按上下文分开推演，把各组胜率写进 `--rates-json`，格式见 [strategy.md](strategy.md)。
+推演只回答“换策略值不值”，不产生新证据；偏差与读法见 [bandit.md](bandit.md)。要决定下一批请求花在哪，用只读规划器：
+
+```bash
+recon explore --trials recon/demo/trials.jsonl --budget 30 --json
+```
+
+它按上下文列出未见臂、补样本与探索动作，并给出停止规则；真正发请求仍回到 `crawl`，见 [explore.md](explore.md)。要按上下文分开推演，把各组胜率写进 `--rates-json`，格式见 [strategy.md](strategy.md)。
 
 ## 边界
 

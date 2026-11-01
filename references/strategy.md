@@ -107,6 +107,7 @@ penalty = cost_weight × min(1, 平均耗时 / 5000)
 | `quick` | `thompson` | 每条 URL 只发**一个**请求；跨 URL 学习，先验来自前几条 |
 | `matrix` | `fixed` | 默认穷举：每个 pass 跑完全部臂，用来观察翻转而非省请求 |
 | `bandit` | — | 离线推演，不联网；比较策略的请求开销 |
+| `explore` | — | 只读后验，按上下文分配下一批探测请求；不联网、不发请求 |
 | `advise` | — | 只读证据行，按 `context` 分组提示“先分组再换臂” |
 
 `quick` 的一条 URL 一次请求意味着它**不能**在同一条 URL 内试探；它的选臂是“上一次快筛学到的东西”用在下一班 URL 上。要判断单条 URL 需要哪条臂，用 `fetch` 或 `matrix`。
@@ -154,6 +155,22 @@ recon advise recon/<代号>/evidence.jsonl --json
 ```
 
 推演不产生证据：胜率必须来自实测（`crawl --trial-out` 或 `quick` 的证据行），策略比较只回答“如果这个胜率成立，换策略值不值”。真实改善仍要用 `stats --compare` 看区间。
+
+## 探索规划
+
+诊断告诉你“该继续试”，`explore` 回答“接下来把请求花在哪”：
+
+```bash
+# 从试验行规划下一批请求
+recon explore --trials recon/<代号>/trials.jsonl --budget 30 --json
+
+# 从跨轮档案规划，并加入一条从未试过的新臂
+recon explore --policy-in recon/<代号>/policy.json --arms native,cffi:chrome --json
+```
+
+- 每个上下文先看本地样本：未见臂各补到 `--target-pulls`，样本不足的臂补差额，够样本但 `P(best)` 仍低的上下文探测次优臂。
+- 已判 `exploit` 的上下文进入 `hold`，不再分配请求；预算按不确定性加权，单上下文有上限。
+- 输出只是计划：真正发请求的仍是 `crawl` / `quick` / `fetch`，robots、节流与熔断不变。细节见 [explore.md](explore.md)。
 
 ## 边界
 

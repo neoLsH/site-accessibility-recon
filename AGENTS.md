@@ -50,6 +50,7 @@
 - 选臂上下文、奖励与成本、各能力点的选臂语义：[references/strategy.md](references/strategy.md)
 - 批量采集（多臂选举 / 预算护栏 / 证据行与试验行）：[references/crawl.md](references/crawl.md)
 - 离线推演（给定胜率比较选举策略）：[references/bandit.md](references/bandit.md)
+- 探索规划（后验 → 下一批探测预算）：[references/explore.md](references/explore.md)
 - Agent / LLM 接口（`advise/1` 契约、动作优先级、提示骨架与护栏）：[references/agent.md](references/agent.md)
 - 四种形态（Skill / CLI / Agent / LLM）的分工、共享契约与扩展方式：[references/forms.md](references/forms.md)
 - 端到端走查（本地示例站，不碰真实目标）：[references/walkthrough.md](references/walkthrough.md)
@@ -85,6 +86,7 @@ scripts/recon.py crawl --from urls2.txt --policy-in recon/<代号>/policy.json -
 scripts/recon.py bandit --arms native=0.4,cffi:chrome=0.75       # 离线推演选臂策略
 scripts/recon.py bandit --rates-json recon/<代号>/rates.json      # 按上下文分组推演（不发请求）
 scripts/recon.py bandit --policy-in recon/<代号>/policy.json      # 用上一轮策略档案推演
+scripts/recon.py explore --trials recon/<代号>/trials.jsonl --budget 30  # 只读：下一批探测预算
 scripts/recon.py advise recon/<代号>/evidence.jsonl --json        # 证据行 → 下一步动作（只读，不执行）
 scripts/recon.py surface <url>                                  # 站点 JS 采集面：采了什么、往哪上报
 scripts/recon.py plan recon/<代号>/profile.yaml                  # 档案 lint + 执行计划

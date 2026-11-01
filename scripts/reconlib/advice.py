@@ -249,8 +249,11 @@ def recommend(rows, evidence_path="<evidence.jsonl>"):
                 "assumed",
                 [f"recon fetch {url} --selector '#content' --rung both",
                  f"recon crawl --from urls.txt --selector '#content' --arms "
-                 f"{','.join(sorted(ok_arms | blocked_arms))} --max-pages 20"],
-                ["同 URL 单变量对照确认翻转后再推广", "不可归因的失败不要换臂"]),
+                 f"{','.join(sorted(ok_arms | blocked_arms))} --max-pages 20 "
+                 f"--trial-out recon/<代号>/trials.jsonl",
+                 "recon explore --trials recon/<代号>/trials.jsonl"],
+                ["同 URL 单变量对照确认翻转后再推广", "不可归因的失败不要换臂",
+                 "预算先按 explore 的计划分配，不要无节制重试"]),
         }
 
     return {
@@ -262,6 +265,10 @@ def recommend(rows, evidence_path="<evidence.jsonl>"):
             "assumed",
             [f"recon shape {url} --explain",
              f"recon canary {url} --passes 5",
-             f"recon fetch {url} --selector '#content' --rung both"],
-            ["干净出口 + 真实浏览器仍 4xx 时停手，转为降级或换数据源"]),
+             f"recon fetch {url} --selector '#content' --rung both",
+             "recon crawl --from urls.txt --selector '#content' --max-pages 20 "
+             "--trial-out recon/<代号>/trials.jsonl",
+             "recon explore --trials recon/<代号>/trials.jsonl"],
+            ["干净出口 + 真实浏览器仍 4xx 时停手，转为降级或换数据源",
+             "先补样本再换臂；explore 不绕过 robots 与节流"]),
     }

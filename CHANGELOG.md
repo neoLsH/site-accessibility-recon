@@ -4,6 +4,31 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.17.0] — 2026-11-02
+
+把后验从“诊断结论”推进到“下一批请求的执行计划”：新增只读探索规划器，回答预算该花在哪个上下文、哪条臂、还差多少样本。
+
+### 新增
+
+- `reconlib/explore.py`：`replay` 把试验行按原顺序回放进 `ContextualBandit`（只取可归因、非限频行），`from_policy` 恢复 `recon-policy/1`，`plan` 输出 `recon-explore/1`。
+- `scripts/explore.py` 与 `recon explore`：`--trials` / `--policy-in` 二选一，`--arms` 只列臂名，支持 `--budget`、`--max-per-context`、`--target-pulls`、先验 / 遗忘 / 成本参数与 `--seed`。
+- 规划顺序固定：未见臂 → 补样本 → 探索次优臂 → `hold`；预算按“权重 /（已分配 + 1）”贪心分配，单上下文有上限。
+- 输出 `contexts` / `steps` / `hold` / `unseen_arms` / `notes` / `stop`，每条动作带请求数与理由。
+- `references/explore.md`；`advise` 的 `switch-arm` / `differentiate` 动作补上 `--trial-out` 与 `explore` 命令。
+- `tests/test_explore.py`（16 个）；自检新增探索规划门禁（只读、预算封顶、未试臂可识别、同输入可复现）。
+
+### 变更
+
+- `recon.py` 的 `TOOLS` 与 JSON 汇总接入 `explore`。
+- `SKILL.md` 版本升到 1.17.0；`README.md`、`AGENTS.md`、`atoms.md`、`strategy.md`、`crawl.md`、`bandit.md`、`cli.md` 同步。
+- 试验行缺少 `context` 时按 `url` + 路由形状推导为 `host|路由类|unknown`；缺少 `url` 的行无法定位 host，直接剔除。
+
+### 已知限制
+
+- 预算单位是请求数，不含 `--delay`、退避与 robots 请求；规划结果不能喂 `stats`，也不写进站点档案的 `metrics`。
+- `pages` 是样本权重（试验行按 URL 去重、档案按 pulls 合计），不是精确页数。
+- 推导出的 `unknown` 响应类可能合并不同结局；结论反复翻转时先补 `context` 再规划。
+
 ## [1.16.0] — 2026-11-02
 
 把选臂从“本轮学”推进到“跨轮学”：冷启动有先验、规则漂移可遗忘、诊断能回答“继续试还是收手”，后验可落盘并在下一轮热启动。

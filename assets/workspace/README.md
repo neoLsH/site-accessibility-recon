@@ -11,6 +11,7 @@ recon/
     ├── profile.yaml  # P0 站点档案，机器可读，交给执行侧消费
     ├── evidence.csv  # 证据矩阵原始行
     ├── policy.json   # 选臂后验（--policy-out，下一轮 --policy-in 热启动）
+    ├── trials.jsonl  # 试验行（--trial-out，喂 explore / bandit，不能喂 stats）
     ├── report.md     # 人读报告，由 report.py 生成
     └── notes.md      # 推理链、误判、未解问题
 ```
@@ -29,7 +30,9 @@ cp -R <skill 目录>/assets/workspace/. ./recon/
 
 scripts/matrix.py <url> --selector '#content' --save-html recon/raw
 scripts/crawl.py --from urls.txt --selector '#content' \
-    --policy-out recon/<代号>/policy.json
+    --policy-out recon/<代号>/policy.json \
+    --trial-out recon/<代号>/trials.jsonl
+scripts/explore.py --trials recon/<代号>/trials.jsonl --budget 30   # 只读：下一批探测预算
 scripts/report.py --profile recon/<代号>/profile.yaml --out recon/<代号>/report.md
 ```
 

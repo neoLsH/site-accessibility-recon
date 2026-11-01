@@ -1,6 +1,6 @@
 # 原子层：reconlib
 
-`scripts/reconlib/` 把“量内容、认归类、查 robots、取一次样本、控节奏、落证据、认上下文、选臂、存策略、推下一步”拆成互不依赖的原子。上层只做编排：`fetch` 是一条**客户端臂阶梯**，`crawl` 是**多臂选举 + 预算护栏**，`advise` 把证据行翻译成下一步动作；它们都只从这些原子取数，不另写一套口径。网络编排本身收敛到 `session`，它不是原子。
+`scripts/reconlib/` 把“量内容、认归类、查 robots、取一次样本、控节奏、落证据、认上下文、选臂、存策略、规划探索、推下一步”拆成互不依赖的原子。上层只做编排：`fetch` 是一条**客户端臂阶梯**，`crawl` 是**多臂选举 + 预算护栏**，`explore` 把后验翻成下一批探测，`advise` 把证据行翻译成下一步动作；它们都只从这些原子取数，不另写一套口径。网络编排本身收敛到 `session`，它不是原子。
 
 ## 为什么先拆原子
 
@@ -8,7 +8,7 @@
 - **可单测**：纯函数不联网，本地 fixture 即可验证；网络部分只集中在 `fetch` / `robots`。
 - **可替换**：换渲染服务、换协议栈，只加一个客户端臂，不动归类和度量。
 
-## 十三个原子
+## 十四个原子
 
 | 模块 | 回答什么 | 关键接口 | 副作用 |
 |---|---|---|---|
@@ -24,11 +24,12 @@
 | `policy` | 下一步该用哪条臂 | `Bandit` / `ContextualBandit.select/update/snapshot` | 无（内存态） |
 | `policy_store` | 后验怎么跨轮复用 | `dump` · `load` · `restore` · `context_rates` | 写 / 读仓库外档案（原子写） |
 | `simulate` | 这个胜率下换策略值不值 | `parse_rates` · `rates_from_trials` · `simulate` · `simulate_contexts` | 无（纯离线） |
+| `explore` | 下一批请求该花在哪 | `replay` · `from_policy` · `plan` · `parse_arms` | 无（只读） |
 | `advice` | 证据行说下一步该做什么 | `recommend(rows)` | 无（只读） |
 
 `measure` 只量选择器命中的容器，并跳过 `script` / `style`；整页字节会把导航和页脚算进来，是最常见的指标虚高来源。`content_len` 的返回可能是数字，也可能是 `missing` / `?unsupported` / `-`，调用方不要假定一定是整数。
 
-`context` 只从 URL 路径与首次结局取键（`host|路由类|响应类`），不读站点常量；它只决定“选臂读哪份统计”，不改写结局。`pacing` 的时钟与 sleep 可注入，测试不真的等待；`policy` 的随机种子可复现。这些都不联网，可单测。`policy_store` 只做原子写与结构校验，不联网、不选臂；档案里只有计数，`context_rates` 把它转成 `--rates-json` 同构的输入。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。`advice` 只消费证据行，输出动作与停止条件，不执行命令；契约见 [agent.md](agent.md)。
+`context` 只从 URL 路径与首次结局取键（`host|路由类|响应类`），不读站点常量；它只决定“选臂读哪份统计”，不改写结局。`pacing` 的时钟与 sleep 可注入，测试不真的等待；`policy` 的随机种子可复现。这些都不联网，可单测。`policy_store` 只做原子写与结构校验，不联网、不选臂；档案里只有计数，`context_rates` 把它转成 `--rates-json` 同构的输入。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。`explore` 只消费试验行或策略档案，把后验转成带预算的探测计划，不联网、不发请求；规划顺序见 [explore.md](explore.md)。`advice` 只消费证据行，输出动作与停止条件，不执行命令；契约见 [agent.md](agent.md)。
 
 ## 观测与归类契约
 

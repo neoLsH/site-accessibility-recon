@@ -25,7 +25,8 @@
  21. 臂注册表：外部臂按配置可用、未配置 browser 不可用、render 不经 shell
  22. 策略上下文：上下文键 / 回退链稳定，quick/matrix 薄壳转调 Python，bandit 支持分组推演
  23. 策略记忆：分层先验 / 遗忘 / 诊断 / 档案往返，四个采集入口与 bandit 全部接入
- 24. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 24. 探索规划：explore 只读、预算封顶、同输入可复现，且 recon 入口已接入
+ 25. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -96,6 +97,7 @@ REQUIRED = [
     "scripts/fetch-page.py",
     "scripts/crawl.py",
     "scripts/bandit.py",
+    "scripts/explore.py",
     "scripts/advise.py",
     "scripts/reconlib/__init__.py",
     "scripts/reconlib/measure.py",
@@ -107,6 +109,7 @@ REQUIRED = [
     "scripts/reconlib/context.py",
     "scripts/reconlib/policy.py",
     "scripts/reconlib/policy_store.py",
+    "scripts/reconlib/explore.py",
     "scripts/reconlib/simulate.py",
     "scripts/reconlib/advice.py",
     "scripts/reconlib/arms.py",
@@ -140,6 +143,7 @@ REQUIRED = [
     "tests/test_policy_store.py",
     "tests/test_quick.py",
     "tests/test_matrix.py",
+    "tests/test_explore.py",
 ]
 
 # 脱敏红线：命中即失败。这里只放公开可提的站点 / 厂商。
@@ -855,6 +859,81 @@ finally:
     ok("策略记忆：先验 / 遗忘 / 诊断 / 档案往返成立，四入口与 bandit 已接入")
 
 
+def check_explore_planner():
+    """探索规划是只读层：不发请求、预算封顶、同输入可复现。"""
+    code = """
+import sys
+sys.path.insert(0, "scripts")
+from reconlib import explore
+
+rows = [
+    {"kind": "trial", "arm": "native", "trial_outcome": "blocked",
+     "rate_limited": False, "context": "h|article|challenge",
+     "url": "https://h/a/1"},
+    {"kind": "trial", "arm": "cffi:chrome", "trial_outcome": "ok",
+     "rate_limited": False, "context": "h|article|challenge",
+     "url": "https://h/a/1"},
+    {"kind": "trial", "arm": "native", "trial_outcome": "noise",
+     "rate_limited": False, "context": "h|article|challenge"},
+]
+bandit, pages, observed = explore.replay(rows, arms=["browser:chromium"])
+assert observed["attempts"] == 2 and observed["skipped"] == 1, observed
+body = explore.plan(bandit, pages, observed, budget=3, max_per_context=2)
+assert body["schema"] == "recon-explore/1"
+assert body["allocated"] <= 3
+assert body["allocated"] == sum(s["requests"] for s in body["steps"])
+assert "browser:chromium" in body["unseen_arms"], body["unseen_arms"]
+assert body["stop"]
+again = explore.plan(bandit, pages, observed, budget=3, max_per_context=2)
+assert body == again, "同输入不可复现"
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("探索规划契约异常: " + " | ".join(tail))
+        return
+
+    cli = read("scripts/explore.py")
+    if any(m in cli for m in ("fetch_one", "ArmSession", "urlopen", "robots.decision")):
+        fail("explore 不应联网（出现了取内容 / 网络调用）")
+        return
+    if "explore" not in read("scripts/recon.py"):
+        fail("recon 入口未接入 explore")
+        return
+
+    args = [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "explore",
+            "--trials", os.path.join(ROOT, "assets/example/trials.jsonl"),
+            "--arms", "native,cffi:chrome,cffi:firefox", "--budget", "8",
+            "--json"]
+    first = subprocess.run(args, capture_output=True, text=True)
+    second = subprocess.run(args, capture_output=True, text=True)
+    if first.returncode != 0 or second.returncode != 0:
+        fail(f"explore 示例异常: {(first.stderr or first.stdout).strip()[:200]}")
+        return
+    if first.stdout != second.stdout:
+        fail("explore 同输入输出不一致")
+        return
+    try:
+        got = json.loads(first.stdout)
+    except ValueError:
+        fail("explore --json 不是合法 JSON")
+        return
+    if got.get("schema") != "recon-explore/1" or got.get("ok") is not True:
+        fail(f"explore 契约异常: schema={got.get('schema')!r} ok={got.get('ok')!r}")
+        return
+    if got.get("allocated", 99) > got.get("budget", 0):
+        fail("explore 分配超过预算")
+        return
+    if sum(s.get("requests", 0) for s in got.get("steps") or []) != got.get("allocated"):
+        fail("explore steps 与 allocated 不一致")
+        return
+    if "cffi:firefox" not in (got.get("unseen_arms") or []):
+        fail("explore 未识别未试臂")
+        return
+    ok("探索规划：只读、预算封顶、未试臂可识别、同输入可复现")
+
+
 def check_crawl_guard():
     """批量采集是唯一会连发请求的入口：预算 / 间隔 / 熔断必须写在代码里，不靠口头约定。"""
     body = read("scripts/crawl.py")
@@ -1074,6 +1153,7 @@ def main():
     check_arms_guard()
     check_strategy_context()
     check_policy_memory()
+    check_explore_planner()
     check_crawl_guard()
     check_bandit_smoke()
     check_advice_smoke()

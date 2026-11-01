@@ -15,6 +15,7 @@
 | `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--policy-in` `--policy-out` `--out-dir` |
 | `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--policy-in` `--policy-out` `--seed` `--evidence-out` `--trial-out` |
 | `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` / `--rates-json` / `--policy-in` `--pages` `--policies` `--seed` |
+| `explore` | `explore.py` | 只读探索规划：后验 → 下一批探测与停止规则 | `--trials` / `--policy-in` `--arms` `--budget` `--max-per-context` `--target-pulls` `--prior-strength` `--half-life` `--cost-weight` `--seed` |
 | `advise` | `advise.py` | 证据行 → 下一步动作（只读，不执行） | `--route` `--json` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
@@ -172,6 +173,21 @@ recon bandit --policy-in recon/<代号>/policy.json --pages 200 --json
 
 读法与偏差见 [bandit.md](bandit.md)。
 
+## 探索规划
+
+`explore` 只读试验行或策略档案，把后验变成预算内的下一批探测：
+
+```bash
+recon explore --trials recon/<代号>/trials.jsonl --budget 30 --json
+recon explore --policy-in recon/<代号>/policy.json --arms native,cffi:chrome --json
+```
+
+- `--trials` / `--policy-in` 二选一；`--arms` 只列臂名，用来加入档案里没有的新臂。
+- `--budget` 是请求数上限（默认 30），`--max-per-context` 限制单上下文（默认 6），`--target-pulls` 是每臂目标样本（默认 4）。
+- 输出契约 `recon-explore/1`：`contexts`（`best_arm` / `confidence` / `decision`）→ `steps`（`unseen` / `warmup` / `explore`）→ `hold` / `stop` / `notes`。
+- 不联网、不发请求、不产生证据行；它只给计划，执行仍走 `crawl` / `quick` / `fetch`。
+- 规划顺序、预算算法与偏差见 [explore.md](explore.md)。
+
 ## 下一步动作
 
 `advise` 只读证据行，输出一个动作与停止条件，供 Agent / LLM 消费：
@@ -198,6 +214,7 @@ recon fetch <url> --selector '#content'              # 分层取内容
 recon crawl --from urls.txt --selector '#content'    # 批量：多臂选举 + 预算护栏
 recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演选臂策略
 recon bandit --rates-json recon/<代号>/rates.json    # 按上下文分组推演
+recon explore --trials recon/<代号>/trials.jsonl     # 后验 → 下一批探测预算
 recon advise recon/<代号>/evidence.jsonl --json      # 证据行 → 下一步动作
 recon plan recon/<代号>/profile.yaml                 # 档案 → 计划
 recon stats recon/<代号>/evidence.jsonl              # 双指标
