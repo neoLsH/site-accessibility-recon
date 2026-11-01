@@ -71,6 +71,8 @@ def read_rows(paths):
             except ValueError:
                 parsed = None
         if parsed is not None:
+            if isinstance(parsed, dict) and parsed.get('kind') == 'trial':
+                raise ValueError(f'{path}: 这是试验行（kind: trial），不能当证据行')
             if isinstance(parsed, dict) and isinstance(parsed.get('rows'), list):
                 items = parsed['rows']
             elif isinstance(parsed, list):
@@ -90,6 +92,8 @@ def read_rows(paths):
                 item = json.loads(line)
             except ValueError as e:
                 raise ValueError(f'{path}:{lineno}: JSON 解析失败: {e}')
+            if isinstance(item, dict) and item.get('kind') == 'trial':
+                raise ValueError(f'{path}:{lineno}: 试验行不能当证据行')
             rows.append(normalize(item, path, lineno))
     return rows
 

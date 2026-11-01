@@ -43,7 +43,8 @@
 - 实验设计与非确定性：[references/evidence-matrix.md](references/evidence-matrix.md)
 - 双指标与防虚高：[references/metrics.md](references/metrics.md)
 - 全部命令、选项、判据、退出码与基线阈值：[references/cli.md](references/cli.md)
-- 原子层（量测 / 归类 / robots / 取样）与扩展方式：[references/atoms.md](references/atoms.md)
+- 原子层（量测 / 归类 / robots / 取样 / 节奏 / 证据 / 选举）与扩展方式：[references/atoms.md](references/atoms.md)
+- 批量采集（多臂选举 / 预算护栏 / 证据行与试验行）：[references/crawl.md](references/crawl.md)
 - 端到端走查（本地示例站，不碰真实目标）：[references/walkthrough.md](references/walkthrough.md)
 - 对策阶梯与决策树：[references/countermeasure-ladder.md](references/countermeasure-ladder.md)
 - 从档案到执行：lint 分级、层→级、五步、失败回流：[references/execution.md](references/execution.md)
@@ -70,6 +71,7 @@ scripts/recon.py stats before.jsonl --compare after.jsonl        # 改前改后�
 scripts/fingerprint-probe.js                                    # 页面内指纹快照 + CDP 泄漏探针
 scripts/recon.py fp diff a.json b.json                          # 网络指纹快照 + 逐字段 diff
 scripts/recon.py fetch <url> --selector '#content'               # 客户端臂阶梯取内容 + WAF 归类（--rung 只跑一级）
+scripts/recon.py crawl --from urls.txt --selector '#content'     # 批量取内容：多臂选举 + 预算 / 熔断护栏
 scripts/recon.py surface <url>                                  # 站点 JS 采集面：采了什么、往哪上报
 scripts/recon.py plan recon/<代号>/profile.yaml                  # 档案 lint + 执行计划
 scripts/recon.py report recon/<代号>/profile.yaml                # 从档案生成报告

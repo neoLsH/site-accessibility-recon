@@ -1,6 +1,6 @@
 # 原子层：reconlib
 
-`scripts/reconlib/` 把“量内容、认归类、查 robots、取一次样本”拆成四个互不依赖的原子。上层只做编排：`fetch` 是一条**客户端臂阶梯**，后续的批量采集与多臂选举也只从这些原子取数，不另写一套口径。
+`scripts/reconlib/` 把“量内容、认归类、查 robots、取一次样本、控节奏、落证据、选臂”拆成互不依赖的原子。上层只做编排：`fetch` 是一条**客户端臂阶梯**，`crawl` 是**多臂选举 + 预算护栏**，两者都只从这些原子取数，不另写一套口径。
 
 ## 为什么先拆原子
 
@@ -8,7 +8,7 @@
 - **可单测**：纯函数不联网，本地 fixture 即可验证；网络部分只集中在 `fetch` / `robots`。
 - **可替换**：换渲染服务、换协议栈，只加一个客户端臂，不动归类和度量。
 
-## 四个原子
+## 七个原子
 
 | 模块 | 回答什么 | 关键接口 | 副作用 |
 |---|---|---|---|
@@ -16,8 +16,13 @@
 | `classify` | 这次响应算哪种结局、能不能归因给客户端 | `classify(observation, selector, min_content)` | 无 |
 | `robots` | 这个 URL 允许抓吗 | `decision(url, timeout, ua)` → `allow / deny / unknown` | 调 `curl` |
 | `fetch` | 用某套协议栈取一次 | `parse_arm` · `fetch_one` · `save_html` | 调 `curl` / `curl_cffi` |
+| `pacing` | 现在能不能发、下次等多久、何时熔断 | `Pacing.wait/observe` · `retry_after` · `default_delay` | 只睡，不发请求 |
+| `evidence` | 这页记成什么行 | `evidence_row` · `trial_row` · `write_jsonl` | 写文件（调用方给路径） |
+| `policy` | 下一步该用哪条臂 | `Bandit.select/update/snapshot` | 无（内存态） |
 
 `measure` 只量选择器命中的容器，并跳过 `script` / `style`；整页字节会把导航和页脚算进来，是最常见的指标虚高来源。`content_len` 的返回可能是数字，也可能是 `missing` / `?unsupported` / `-`，调用方不要假定一定是整数。
+
+`pacing` 的时钟与 sleep 可注入，测试不真的等待；`policy` 的随机种子可复现。三者都不联网，可单测。
 
 ## 观测与归类契约
 

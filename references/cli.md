@@ -13,6 +13,7 @@
 | `canary` | `canary.py` | 是否概率门；改前改后是否回归 | `--selector` `--passes` `--delay` `--save` `--compare` |
 | `stats` | `stats.py` | 按路由拆分的双指标、区间与改前改后差值 | `--compare` `--min-den`；位置参数为 JSONL / canary 基线 JSON |
 | `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--out-dir` |
+| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--policy` `--seed` `--evidence-out` `--trial-out` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
 | `plan` | `plan.py` | 档案 lint + 从最早失败门推导执行计划 | 档案路径（位置参数） |
@@ -23,7 +24,7 @@
 
 - `--json` 只改变输出形态：顶层 `{"command", "ok", ...}`，`ok` 取自退出码，字段名以各脚本为准。
 - 退出码：`0` 成功 / `1` 有结论但结论是“有问题”/ `2` 用法或数据格式错误。`shape` 的 `1` 只表示没拿到响应（`unreachable`），其余形态即使不理想也算成功分类；`stats --compare` 的 `1` 表示至少一个指标判为回归。
-- 节流是硬约束：`canary` 上限 10 pass、间隔 ≥2s；`quick`/`matrix`/`fetch` 的 URL 间隔默认 5s。连续探测会触发按出口的频率降权，把限频污染成“指纹被识别”。
+- 节流是硬约束：`canary` 上限 10 pass、间隔 ≥2s；`quick`/`matrix`/`fetch`/`crawl` 的 URL 间隔默认 5s（`crawl` 回环地址自动降为 0）。连续探测会触发按出口的频率降权，把限频污染成“指纹被识别”。
 - 记录写 `<项目根>/recon/<代号>/`，见 [site-profile.md](site-profile.md) 与 [assets/workspace/README.md](../assets/workspace/README.md)。
 
 ## 形态判据
@@ -126,6 +127,23 @@ recon stats recon/<代号>/evidence-before.jsonl --compare recon/<代号>/eviden
 - 只有可归因的 `blocked` / `degraded` 才继续试下一级；两级都拦且高阶成功时归为 `2 协议栈白名单`。
 - 度量与归类的口径由 `scripts/reconlib/` 原子层提供，见 [atoms.md](atoms.md)。
 
+## 批量采集
+
+`crawl` 用多臂老虎机在客户端臂之间选举，按 host 学习胜率，并强制预算 / 节流 / 熔断：
+
+```bash
+recon crawl --from urls.txt --selector '#content' \
+    --arms native,cffi:chrome --policy thompson --seed 7 \
+    --evidence-out recon/<代号>/evidence.jsonl --trial-out recon/<代号>/trials.jsonl
+```
+
+- 默认护栏：`--max-pages 50`、`--max-requests 150`、`--delay 5`、连续 blocked 3 次熔断。
+- `--policy` 取 `thompson|ucb1|fixed|round_robin`；`--min-pulls` 控制每臂预热次数。
+- 只有可取内容的 `--evidence-out` 能喂 `stats`；`--trial-out` 是 `kind: trial` 的复盘日志，`stats` 会拒绝。
+- 退出码 `1` 表示预算或熔断导致提前停止，不是“所有页都可访问”。
+
+规则与误用见 [crawl.md](crawl.md)。
+
 ## 常见组合
 
 ```bash
@@ -134,6 +152,7 @@ recon shape <url> --explain                          # 认形态
 recon canary <url> --passes 5                        # 是否概率门
 recon matrix <url> --selector '#content' --passes 3  # 换栈是否翻转
 recon fetch <url> --selector '#content'              # 分层取内容
+recon crawl --from urls.txt --selector '#content'    # 批量：多臂选举 + 预算护栏
 recon plan recon/<代号>/profile.yaml                 # 档案 → 计划
 recon stats recon/<代号>/evidence.jsonl              # 双指标
 recon report recon/<代号>/profile.yaml --out recon/<代号>/report.md

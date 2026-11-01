@@ -4,6 +4,32 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.11.0] — 2026-11-02
+
+把批量取内容做成可结算的编排：多臂老虎机在已有客户端臂之间选举，节流与熔断写进代码，产出能直接喂 `stats` 的证据行。
+
+### 新增
+
+- `recon crawl`（`scripts/crawl.py`）：按 host 学习臂的胜率，逐页选臂直到拿到内容、遇到不可归因失败、臂用完或熔断；支持 `thompson` / `ucb1` / `fixed` / `round_robin`，`--seed` 可复现。
+- 护栏：`--max-pages 50`、`--max-requests 150`、每 host `--delay 5s`（回环自动 0）、连续 3 次 blocked 熔断；`429` 按 `Retry-After` 或指数退避推迟下一次请求，**不自动重试**同一 URL。
+- 两种产物：`--evidence-out` 每页一行（可直接 `stats`）；`--trial-out` 每次尝试一行（`kind: trial` + `trial_outcome`，`stats` 显式拒绝）。
+- 原子层扩到七个：`pacing`（节流 / 退避 / 熔断，时钟可注入）、`evidence`（证据行 / 试验行契约与 JSONL 读写）、`policy`（MAB 选举与更新规则）。
+- `tests/test_pacing.py`（11 个）、`tests/test_evidence.py`（8 个）、`tests/test_policy.py`（10 个）、`tests/test_crawl.py`（9 个）。
+- `references/crawl.md`：选举规则、护栏、两种行的分工与常见误用；`atoms.md` / `cli.md` / `SKILL.md` / `README.md` / `AGENTS.md` 同步。
+- 自检新增批量采集护栏：常量上限、`crawl` 复用原子、试验行被 `stats` 拒绝。
+
+### 变更
+
+- `stats.py` 遇到 `kind: trial` 的行显式报错，不再落入“没有 rows 数组”的泛化错误。
+- 熔断只封当前 host：余下同 host 的 URL 记为 `circuit-open` 跳过，其他 host 仍可在预算内继续；运行结束退出码为 1。
+- `robots: deny` 的 URL 一个请求都不发，记为跳过而非 `blocked`，不污染可访问性分母。
+
+### 已知限制
+
+- 策略只在进程内学习，不跨运行持久化；跨次运行的稳定偏置尚未沉淀。
+- 没有并发：并发会把限频信号变成假阳性，暂不引入。
+- 排演（离线推演选臂收益）尚未提供，见后续 `bandit` 计划。
+
 ## [1.10.0] — 2026-11-02
 
 把单点能力拆成原子：量测、归类、robots、取样各只有一份口径，`fetch` 退化为编排层，为后续批量采集与多臂选举打底。

@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 python3 与 curl；建议另装 curl_cffi 做浏览器级 TLS 指纹仿真。要让脚本真正联网，还需要能出网的出口；断网时自动降级为离线复核（只分析已留存的 HTML 与快照）。
 allowed-tools: Bash, Read, Write, Edit, WebFetch, Task
 metadata:
-  version: 1.10.0
+  version: 1.11.0
   scope: diagnostics
 ---
 
@@ -93,6 +93,7 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 | 落站点档案、生成报告 | [references/site-profile.md](references/site-profile.md) |
 | 查某条命令的选项、判据与退出码 | [references/cli.md](references/cli.md) |
 | 扩展脚本、复用量测 / 归类 / 取样能力 | [references/atoms.md](references/atoms.md) |
+| 批量取内容、多臂选臂、控预算与熔断 | [references/crawl.md](references/crawl.md) |
 | 第一次跑，想跟着走一遍完整链路 | [references/walkthrough.md](references/walkthrough.md) |
 | 先装环境、知道用哪个工具、别踩版本坑 | [references/toolbox.md](references/toolbox.md) |
 | 做指纹分析（采集 / 自洽 / 差分 / 归因） | [references/fingerprint-methods.md](references/fingerprint-methods.md) |
@@ -110,6 +111,7 @@ recon plan recon/<代号>/profile.yaml                # 档案 lint → 执行�
 recon stats recon/<代号>/evidence.jsonl             # 双指标（按路由 + 区间）
 recon stats before.jsonl --compare after.jsonl      # 改前改后差值 + 样本下限
 recon fetch <url> --selector '#content' --rung native  # 只跑一级客户端臂
+recon crawl --from urls.txt --selector '#content'   # 批量取内容：多臂选举 + 预算护栏
 ```
 
 `scripts/fingerprint-probe.js` 直接在浏览器页面里跑，不走 `recon` 入口。

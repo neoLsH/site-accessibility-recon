@@ -20,7 +20,8 @@
  16. 双指标结算：stats 对示例证据行可运行，口径符合定义
  17. 原子层契约：reconlib 可导入，度量与归类字段稳定，fetch-page 复用
  18. 行为测试：tests/ 有可编译的用例，且已接入 CI
- 19. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 19. 批量采集护栏：crawl 的预算 / 间隔 / 熔断常量受限，试验行不能混入证据行
+ 20. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -31,6 +32,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NAME = "site-accessibility-recon"
@@ -59,6 +61,7 @@ REQUIRED = [
     "references/cli.md",
     "references/walkthrough.md",
     "references/atoms.md",
+    "references/crawl.md",
     "assets/site-profile.template.yaml",
     "assets/report-template.md",
     "assets/shape-signals.json",
@@ -79,11 +82,15 @@ REQUIRED = [
     "scripts/fingerprint-probe.js",
     "scripts/fp-echo.py",
     "scripts/fetch-page.py",
+    "scripts/crawl.py",
     "scripts/reconlib/__init__.py",
     "scripts/reconlib/measure.py",
     "scripts/reconlib/classify.py",
     "scripts/reconlib/robots.py",
     "scripts/reconlib/fetch.py",
+    "scripts/reconlib/pacing.py",
+    "scripts/reconlib/evidence.py",
+    "scripts/reconlib/policy.py",
     "scripts/js-surface.py",
     "scripts/shape.py",
     "scripts/canary.py",
@@ -95,6 +102,10 @@ REQUIRED = [
     "tests/support.py",
     "tests/test_atoms.py",
     "tests/test_fetch.py",
+    "tests/test_pacing.py",
+    "tests/test_evidence.py",
+    "tests/test_policy.py",
+    "tests/test_crawl.py",
 ]
 
 # 脱敏红线：命中即失败。这里只放公开可提的站点 / 厂商。
@@ -642,6 +653,44 @@ assert ok["outcome"] in stats.VALID and limited["outcome"] in stats.VALID
     ok("原子层契约稳定（度量 / 归类 / outcome 词表），fetch-page 已复用")
 
 
+def check_crawl_guard():
+    """批量采集是唯一会连发请求的入口：预算 / 间隔 / 熔断必须写在代码里，不靠口头约定。"""
+    body = read("scripts/crawl.py")
+    caps = {
+        "MAX_PAGES": (re.search(r"^MAX_PAGES\s*=\s*(\d+)", body, re.M), 50),
+        "MAX_REQUESTS": (re.search(r"^MAX_REQUESTS\s*=\s*(\d+)", body, re.M), 150),
+        "MAX_CONSECUTIVE_BLOCKED": (
+            re.search(r"^MAX_CONSECUTIVE_BLOCKED\s*=\s*(\d+)", body, re.M), 3),
+    }
+    bad = [f"{k} 未收紧（上限 {cap}）" for k, (m, cap) in caps.items()
+           if not m or int(m.group(1)) > cap]
+    delay = re.search(r"^DEFAULT_DELAY\s*=\s*(\d+(?:\.\d+)?)", body, re.M)
+    if not delay or float(delay.group(1)) < 5:
+        bad.append("DEFAULT_DELAY 过小（应 >=5s）")
+    lost = [m for m in ("pacing", "evidence", "policy") if m not in body]
+    if lost:
+        bad.append(f"crawl 未复用原子: {', '.join(lost)}")
+
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8")
+    try:
+        tmp.write(json.dumps({"kind": "trial", "url": "https://example.invalid/a",
+                              "arm": "native", "attempt": 1,
+                              "trial_outcome": "blocked"}) + "\n")
+        tmp.close()
+        r = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "stats", tmp.name],
+            capture_output=True, text=True)
+        if r.returncode == 0 or "试验行" not in (r.stderr + r.stdout):
+            bad.append("stats 未拒绝试验行（试验日志会污染双指标）")
+    finally:
+        os.unlink(tmp.name)
+
+    if bad:
+        fail("crawl 护栏异常: " + "; ".join(bad))
+    else:
+        ok("crawl 护栏：pages<=50、requests<=150、delay>=5s、熔断<=3；试验行被 stats 拒绝")
+
+
 def check_tests():
     mods = [os.path.basename(p) for p in test_files() if os.path.basename(p).startswith("test_")]
     if not mods:
@@ -688,6 +737,7 @@ def main():
     check_shape_signals()
     check_stats_smoke()
     check_atoms_contract()
+    check_crawl_guard()
     check_tests()
     if "--tests" in sys.argv[1:]:
         run_tests()
