@@ -30,7 +30,8 @@ recon advise recon/<代号>/evidence.jsonl --route /article/1 --json
     "outcomes": {"ok": 4, "degraded": 2, "blocked": 1, "auth": 0,
                  "missing": 0, "noise": 1},
     "noise_excluded_n": 7,
-    "arms": ["native", "cffi:chrome"]
+    "arms": ["native", "cffi:chrome"],
+    "contexts": ["example.com|article|challenge", "example.com|list|content"]
   },
   "findings": [{"code": "degraded", "count": 2, "message": "拿到响应但内容不足"}],
   "next": {
@@ -46,8 +47,8 @@ recon advise recon/<代号>/evidence.jsonl --route /article/1 --json
 
 | 字段 | 说明 |
 |---|---|
-| `evidence` | 计数快照；`n` 是总行数，`noise_excluded_n` 是可归因行数，噪声不进分母 |
-| `findings` | 观察到的结局，按 auth / missing / blocked / degraded / noise 排列，只报计数 |
+| `evidence` | 计数快照；`n` 是总行数，`noise_excluded_n` 是可归因行数，噪声不进分母；`contexts` 是出现过的 `host|路由类|响应类` |
+| `findings` | 观察到的结局，按 auth / missing / blocked / degraded / noise 排列，只报计数；`context-split` 表示同一 host 的不同上下文结局相反 |
 | `next` | 唯一一个动作，绑定层、S 级、理由、置信度、可选命令与停止条件 |
 | `route` | 仅当用 `--route` 过滤时出现 |
 | `ok: false` | 不出现；输入错误走退出码 2 |
@@ -68,7 +69,7 @@ recon advise recon/<代号>/evidence.jsonl --route /article/1 --json
 | `differentiate` | 被拦但尚无臂间差异 | L6 / S1 | assumed |
 | `maintain` | 可归因行全部拿到内容 | L7 / S0 | observed |
 
-优先级是**先分诊**：业务状态（auth / missing）先于反爬；反爬里先分限频，再看换臂；噪声单列，不参与归因。`switch-arm` 与 `differentiate` 是 `assumed`——它们描述“最便宜的候选”，不是已验证的因果。
+优先级是**先分诊**：业务状态（auth / missing）先于反爬；反爬里先分限频，再看换臂；噪声单列，不参与归因。`switch-arm` 与 `differentiate` 是 `assumed`——它们描述“最便宜的候选”，不是已验证的因果。证据里出现 `context-split`（同一 host 下 `ok` 与 `blocked` 落在不同上下文）时，先按上下文分组再换臂，否则会把“某类页面本来就能取”读成“换臂有效”。
 
 ## 接 LLM 的方式
 
@@ -96,4 +97,4 @@ LLM 的价值在于把 `why` 讲清楚、把多条路由的建议排序、把结
 
 ## 边界
 
-`advise` 是规则层，不是策略执行器：它不选臂、不发请求、不写证据、不修改档案。需要选臂用 `crawl`，需要离线比较策略用 `bandit`，需要结算用 `stats`。规则只覆盖本仓库已有的结局词表；新增结局要先扩 `evidence` / `stats` 词表，再扩动作表，并补测试。
+`advise` 是规则层，不是策略执行器：它不选臂、不发请求、不写证据、不修改档案。需要选臂用 `crawl` / `quick`，需要离线比较策略用 `bandit`，需要结算用 `stats`。规则只覆盖本仓库已有的结局词表；新增结局要先扩 `evidence` / `stats` 词表，再扩动作表，并补测试。

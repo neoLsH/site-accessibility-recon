@@ -27,7 +27,7 @@ awaitPromise: true, returnByValue: true
 | `https://tls.peet.ws/api/all` | 网络侧：JA3 / JA4 / H2 SETTINGS 与 Akamai 指纹 / 协商版本 | 命令行采集，见下 |
 
 ```bash
-# 采集当前 curl 栈 → 与 client-matrix.sh 的 curl 行同栈
+# 采集当前 curl 栈 → 与 matrix.py 的 native 行同栈
 scripts/fp-echo.py --out baseline.json
 
 # 采集浏览器级栈（需要 curl_cffi）
@@ -89,7 +89,7 @@ scripts/fp-echo.py --diff baseline.json chrome.json
 ### TLS ClientHello
 
 - 读数：JA3 / JA3N / JA4。**同 UA 不同栈**才是有效对照。
-- 命令：`scripts/client-matrix.sh <url> --tls-echo`（跑矩阵时顺带读数）；
+- 命令：`scripts/matrix.py <url> --tls-echo`（跑矩阵时顺带读数）；
   只想要可 diff 的快照时用 `scripts/fp-echo.py`。
 - 陷阱：同一份 curl 在 macOS（LibreSSL）与 Linux（OpenSSL）指纹不同；TLS 1.3 下 JA3 受扩展顺序影响更大。
 

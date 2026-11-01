@@ -26,7 +26,7 @@ recon/
 # 首次：只落地骨架（-R 带点，确保 .gitignore 一起复制过去）
 cp -R <skill 目录>/assets/workspace/. ./recon/
 
-scripts/client-matrix.sh <url> --selector '#content' --save-html recon/raw
+scripts/matrix.py <url> --selector '#content' --save-html recon/raw
 scripts/report.py --profile recon/<代号>/profile.yaml --out recon/<代号>/report.md
 ```
 

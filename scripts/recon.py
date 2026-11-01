@@ -28,8 +28,8 @@
     recon quick --from urls.txt --json              # 任一子命令都可加 --json
 
 子命令与脚本的对应：
-    doctor → preflight.sh    quick → quick-check.sh    shape → shape.py
-    matrix → client-matrix.sh canary → canary.py       fetch → fetch-page.py
+    doctor → preflight.sh    quick → quick.py         shape → shape.py
+    matrix → matrix.py       canary → canary.py       fetch → fetch-page.py
     crawl → crawl.py         surface → js-surface.py  fp    → fp-echo.py
     bandit → bandit.py       plan  → plan.py          advise → advise.py
     stats → stats.py         report → report.py       check → self-check.py

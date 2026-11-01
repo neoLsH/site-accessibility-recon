@@ -147,6 +147,8 @@ def build_parser():
     ap.add_argument("--seed", type=int, help="thompson 的随机种子（复现用）")
     ap.add_argument("--delay", type=float, default=5,
                     help="同 host 请求间隔，默认 5s")
+    ap.add_argument("--cost-weight", type=float, default=0.1,
+                    help="成本惩罚权重（5000ms 归一化），默认 0.1；0 关闭")
     ap.add_argument("--timeout", type=int, default=20, help="单请求超时，默认 20s")
     ap.add_argument("--ua", default=fetch.UA_DEFAULT, help="统一 User-Agent")
     ap.add_argument("--skip-robots", action="store_true",
@@ -162,6 +164,8 @@ def main(argv=None):
         ap.error("--delay 不能为负")
     if args.min_content < 0:
         ap.error("--min-content 不能为负")
+    if args.cost_weight < 0:
+        ap.error("--cost-weight 不能为负")
 
     urls = list(args.urls)
     if args.from_file:
@@ -185,7 +189,8 @@ def main(argv=None):
     session = ArmSession(
         arm_list, registry=registry, policy=args.policy, seed=args.seed,
         delay=args.delay, timeout=args.timeout, ua=args.ua,
-        permission=args.skip_robots, require=require)
+        permission=args.skip_robots, require=require,
+        cost_weight=args.cost_weight)
 
     def warn(host):
         print(f"# 警告：{host} 的 robots.txt 取不到，合规状态未知，继续探测",

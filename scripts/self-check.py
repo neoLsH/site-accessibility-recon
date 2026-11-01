@@ -23,7 +23,8 @@
  19. 批量采集护栏：crawl 的预算 / 间隔 / 熔断常量受限，试验行不能混入证据行
  20. 离线推演：bandit 不发请求、同 seed 可复现，示例试验行口径正确
  21. 臂注册表：外部臂按配置可用、未配置 browser 不可用、render 不经 shell
- 22. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 22. 策略上下文：上下文键 / 回退链稳定，quick/matrix 薄壳转调 Python，bandit 支持分组推演
+ 23. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -64,6 +65,7 @@ REQUIRED = [
     "references/walkthrough.md",
     "references/atoms.md",
     "references/arms.md",
+    "references/strategy.md",
     "references/crawl.md",
     "references/bandit.md",
     "references/agent.md",
@@ -101,6 +103,7 @@ REQUIRED = [
     "scripts/reconlib/fetch.py",
     "scripts/reconlib/pacing.py",
     "scripts/reconlib/evidence.py",
+    "scripts/reconlib/context.py",
     "scripts/reconlib/policy.py",
     "scripts/reconlib/simulate.py",
     "scripts/reconlib/advice.py",
@@ -725,6 +728,67 @@ os.unlink(path)
     ok("臂注册表：外部臂按配置可用、未配置 browser 不可用、render 不经 shell")
 
 
+def check_strategy_context():
+    """上下文与成本是选臂口径：键 / 回退链必须稳定，入口薄壳不能有第二份实现。"""
+    if "quick.py" not in read("scripts/quick-check.sh"):
+        fail("quick-check.sh 未转调 quick.py")
+        return
+    if "matrix.py" not in read("scripts/client-matrix.sh"):
+        fail("client-matrix.sh 未转调 matrix.py")
+        return
+    code = """
+import sys
+sys.path.insert(0, "scripts")
+from reconlib import context, evidence, policy
+assert context.route_class("https://h/article/1") == "article"
+assert context.route_class("https://h/api/list") == "api"
+assert context.route_class("https://h/list/2") == "list"
+assert context.response_class({"outcome": "degraded"}) == "shell"
+assert context.fallbacks("h|article|challenge") == [
+    "h|article|challenge", "h|article|*", "h|*|*", "*"]
+b = policy.ContextualBandit(["native", "cffi:chrome"], seed=1, cost_weight=0)
+b.update("h", "article|challenge", "native", "blocked", cost_ms=10)
+b.update("h", "article|challenge", "cffi:chrome", "ok", cost_ms=10)
+assert b.snapshot("h", "article|challenge")["best_arm"] == "cffi:chrome"
+row = evidence.trial_row("https://h/article/1", "native",
+                         {"outcome": "ok", "attributable": True},
+                         context="h|article|content", cost_ms=42)
+assert row["context"] == "h|article|content" and row["cost_ms"] == 42
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("上下文 / 成本契约异常: " + " | ".join(tail))
+        return
+
+    payload = {"contexts": [
+        {"context": "h|article|challenge", "pages": 20,
+         "rates": {"native": 0.3, "cffi:chrome": 0.8}},
+        {"context": "h|list|content", "pages": 20,
+         "rates": {"native": 0.9, "cffi:chrome": 0.6}},
+    ]}
+    tmp = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False,
+                                      encoding="utf-8")
+    try:
+        json.dump(payload, tmp)
+        tmp.close()
+        r = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "scripts/bandit.py"),
+             "--rates-json", tmp.name, "--pages", "20", "--seed", "7", "--json"],
+            capture_output=True, text=True)
+        try:
+            body = json.loads(r.stdout) if r.returncode == 0 else {}
+        except ValueError:
+            body = {}
+        if body.get("source") != "rates-json" or len(body.get("contexts") or {}) != 2:
+            fail("bandit --rates-json 未按上下文分组推演")
+            return
+    finally:
+        os.unlink(tmp.name)
+    ok("策略上下文：键与回退链稳定、quick/matrix 薄壳转调 Python、bandit 支持分组推演")
+
+
 def check_crawl_guard():
     """批量采集是唯一会连发请求的入口：预算 / 间隔 / 熔断必须写在代码里，不靠口头约定。"""
     body = read("scripts/crawl.py")
@@ -942,6 +1006,7 @@ def main():
     check_stats_smoke()
     check_atoms_contract()
     check_arms_guard()
+    check_strategy_context()
     check_crawl_guard()
     check_bandit_smoke()
     check_advice_smoke()

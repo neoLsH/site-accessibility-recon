@@ -78,5 +78,5 @@ fi
 
 echo
 echo "下一步："
-echo "  bash $ROOT/scripts/quick-check.sh <url>        # 先判可行性"
-echo "  bash $ROOT/scripts/client-matrix.sh <url> --selector '#content'"
+echo "  python3 $ROOT/scripts/quick.py <url>          # 先判可行性"
+echo "  python3 $ROOT/scripts/matrix.py <url> --selector '#content'"

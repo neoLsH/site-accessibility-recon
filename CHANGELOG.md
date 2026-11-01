@@ -4,6 +4,33 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.15.0] — 2026-11-02
+
+把选臂从“按 host 学胜率”推进到“按上下文 + 成本学”，并让每个发请求的能力点都走同一套选臂。
+
+### 新增
+
+- `reconlib/context.py`：上下文键 `host|路由类|响应类`，路由类只看 URL 路径形状，响应类由首次结局映射；提供 `key` / `fallbacks`。样本不足时沿 `host|route|response → host|route|* → host|*|* → *` 聚合。
+- `ContextualBandit`（`reconlib/policy.py`）：`ok=1.0` / `degraded=0.5` / `blocked=0.0`；`auth` / `missing` / `noise` / 限频不更新后验；按 5000ms 归一化的成本惩罚，`--cost-weight` 默认 `0.1`，`0` 关闭。
+- `simulate_contexts`（`reconlib/simulate.py`）与 `bandit --rates-json`：按上下文分组、每组独立选臂与更新的离线推演。
+- `advise` 增加 `context-split`：同一 host 下 `ok` 与 `blocked` 落在不同上下文时，提示先分组再换臂。
+- `references/strategy.md`：上下文键、奖励与成本、各能力点的选臂语义、读法与边界。
+- `tests/test_context.py`（3 个）、`tests/test_policy_context.py`（6 个）、`tests/test_quick.py`（6 个）、`tests/test_matrix.py`（4 个）。
+- 自检新增策略上下文门禁：上下文与回退链可用、`quick` / `matrix` 的 shell 入口指向 Python 实现。
+
+### 变更
+
+- `scripts/quick.py` 与 `scripts/matrix.py` 成为 Python 实现，`quick-check.sh` / `client-matrix.sh` 变薄壳；`quick` 每条 URL 只发一个请求、跨 URL 学习（默认 `thompson`），`matrix` 默认穷举全部臂，新增 `--stop-on-ok` / `--clients` / `--html`。
+- `ArmSession` 记录 `context` 与 `cost_ms`：证据行带 `context`，试验行另带 `cost_ms`；`fetch` / `crawl` / `quick` / `matrix` 均传入 `--cost-weight`。
+- `SKILL.md` 版本升到 1.15.0；`README.md`、`AGENTS.md`、`atoms.md`、`arms.md`、`cli.md`、`crawl.md`、`bandit.md`、`forms.md`、`agent.md`、`toolbox.md` 同步。
+
+### 已知限制
+
+- 上下文只按 URL 路径与首次结局粗分，可能把相似页面合并统计；发现结论反复翻转时先核对路由类。
+- 成本只在同一上下文内排序，不跨上下文比较绝对耗时；`cost_ms` 缺失时成本惩罚不生效。
+- `quick` 单 URL 单请求，不能在同一条 URL 内试探多臂；需要逐臂对照时用 `fetch` 或 `matrix`。
+- 推演不产生证据：`--rates-json` 的胜率仍须来自实测，策略比较不替代 `stats --compare`。
+
 ## [1.14.0] — 2026-11-02
 
 把“客户端臂”从两个硬编码名字变成可扩展注册表，并把 robots、节流、选臂、归类、更新收敛到唯一编排层。

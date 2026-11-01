@@ -33,7 +33,7 @@
 | 7 | headless chromium | 移动 UA | 匿名 | 身份规则 |
 | 8 | 上述最优客户端 | 最优身份 | 带 token | 业务层是否还挡 |
 
-`scripts/client-matrix.sh` 覆盖 2–6；加 `--selector <css>` 会输出 `content_region_len`，加 `--passes 3` 可看翻转率。它不覆盖 1、7、8（需要浏览器与凭证）。
+`scripts/matrix.py` 覆盖 2–6；加 `--selector <css>` 会输出 `content_region_len`，加 `--passes 3` 可看翻转率。它不覆盖 1、7、8（需要浏览器与凭证）。
 
 ---
 

@@ -3,7 +3,7 @@
 同一组原子（[reconlib](atoms.md)）对外有四个交付面：**Skill / CLI / Agent / LLM**。它们不各写一套口径，只回答不同的问题、服务不同的调用方。
 
 ```
-reconlib 原子（度量 / 归类 / robots / 取样 / 节奏 / 证据 / 选举 / 推演 / 建议）
+reconlib 原子（度量 / 归类 / robots / 取样 / 节奏 / 证据 / 上下文 / 选举 / 推演 / 建议）
    ├─ Skill  → 告诉 Agent 何时用哪个命令、怎么读结果
    ├─ CLI    → recon <命令>，人读表 + --json 单对象
    ├─ Agent  → crawl → stats → advise → 执行 → 回写证据
@@ -20,7 +20,7 @@ reconlib 原子（度量 / 归类 / robots / 取样 / 节奏 / 证据 / 选举 /
 ## 同一条链路
 
 1. **Skill** 决定先做什么：可行性快筛 → 分诊 → 分层隔离 → 对策与回归。
-2. **CLI** 执行单点：`quick` / `shape` / `canary` / `fetch` / `crawl` 产出观测与证据行。
+2. **CLI** 执行单点：`quick` / `shape` / `matrix` / `canary` / `fetch` / `crawl` 产出观测与证据行。
 3. **Agent** 循环：`stats` 结算 → `advise` 取下一步 → 按 `stop` 条件执行或停手 → 回写新证据行。
 4. **LLM** 解释：只引用 `advise/1` 里的计数与动作，说明假设与验证方式，不替代规则层。
 
@@ -34,6 +34,7 @@ reconlib 原子（度量 / 归类 / robots / 取样 / 节奏 / 证据 / 选举 /
 |---|---|---|
 | 结局词表 | [atoms.md](atoms.md) | `ok / degraded / blocked / auth / missing / noise`，与 `stats` 一致 |
 | 证据行 | [crawl.md](crawl.md) | 只有可取内容的行能喂 `stats`；试验行（`kind: trial`）单列 |
+| 上下文 | [strategy.md](strategy.md) | `host|路由类|响应类`；回退链与成本惩罚在各能力点一致 |
 | 噪声 | [metrics.md](metrics.md) | 5xx / 链路失败不进可访问性分母 |
 | 置信度 | [SKILL.md](../SKILL.md) | observed / mechanism / efficacy；假设不伪装成机制 |
 | 停止条件 | [agent.md](agent.md) | 每个建议都带 `stop`，到达即停 |
@@ -41,7 +42,8 @@ reconlib 原子（度量 / 归类 / robots / 取样 / 节奏 / 证据 / 选举 /
 
 ## 扩展一处，四处受益
 
-- **加客户端臂**：在 `fetch.parse_arm` 里加命名，`crawl` / `bandit` / `advise` 自动可用。
+- **加客户端臂**：内置臂在 `reconlib/arms.py` 注册；外部内核写进仓库外 `arms.json`，`fetch` / `crawl` / `canary` / `quick` / `matrix` / `bandit` 自动可用。
+- **加上下文维度**：只改 `reconlib/context.py`，回退链与选臂统计自动跟上；不要在 CLI 里另写一套键。
 - **加结局**：先扩 `evidence` / `stats` 词表，再扩 `advice` 动作表，最后补行为测试与自检；跳过前两步会让计数对不上。
 - **加动作**：只改 `reconlib/advice.py` 与动作表，CLI 与 LLM 契约自动带出；不要让 CLI 自己写判断。
 - **加形态**：新形态只做编排，复用现有原子；出现第二份度量或归类实现即视为缺陷。

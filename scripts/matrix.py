@@ -152,6 +152,8 @@ def build_parser():
     ap.add_argument("--save-html", help="把每次尝试的响应体存到该目录")
     ap.add_argument("--delay", type=float, default=5,
                     help="同 host 请求间隔，默认 5s")
+    ap.add_argument("--cost-weight", type=float, default=0.1,
+                    help="成本惩罚权重（5000ms 归一化），默认 0.1；0 关闭")
     ap.add_argument("--timeout", type=int, default=20, help="单请求超时，默认 20s")
     ap.add_argument("--ua", default=fetch.UA_DEFAULT, help="统一 User-Agent")
     ap.add_argument("--tls-echo", action="store_true",
@@ -186,6 +188,8 @@ def main(argv=None):
         ap.error("--passes 必须 >= 1")
     if args.min_content < 0:
         ap.error("--min-content 不能为负")
+    if args.cost_weight < 0:
+        ap.error("--cost-weight 不能为负")
 
     registry, arm_list = _arm_list(args, ap)
     try:
@@ -208,7 +212,8 @@ def main(argv=None):
     session = ArmSession(
         arm_list, registry=registry, policy=args.policy, seed=args.seed,
         delay=args.delay, timeout=args.timeout, ua=args.ua,
-        permission=args.i_have_permission, require=require, save=save)
+        permission=args.i_have_permission, require=require, save=save,
+        cost_weight=args.cost_weight)
 
     rows = []
     halted = None

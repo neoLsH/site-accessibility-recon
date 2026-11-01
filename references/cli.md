@@ -7,20 +7,22 @@
 | 命令 | 底层脚本 | 回答什么 | 关键选项 |
 |---|---|---|---|
 | `doctor` | `preflight.sh` | 环境缺什么、缺了会降级成什么 | — |
-| `quick` | `quick-check.sh` | 每条 URL 值不值得继续测 | `--from` `--selector` `--min-content` `--delay` `--skip-robots` |
+| `quick` | `quick.py` | 每条 URL 值不值得继续测 | `--from` `--selector` `--min-content` `--delay` `--arms` `--policy` `--cost-weight` `--skip-robots` |
 | `shape` | `shape.py` | 这一份响应是什么形态 | `--html` `--signals` `--explain` `--save-html` `--min-content` |
-| `matrix` | `client-matrix.sh` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--save-html` `--delay` |
+| `matrix` | `matrix.py` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--arms` `--stop-on-ok` `--cost-weight` `--save-html` `--delay` |
 | `canary` | `canary.py` | 是否概率门；改前改后是否回归 | `--selector` `--passes` `--delay` `--save` `--compare` `--arms` `--policy` `--arms-file` |
 | `stats` | `stats.py` | 按路由拆分的双指标、区间与改前改后差值 | `--compare` `--min-den`；位置参数为 JSONL / canary 基线 JSON |
-| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--arms` `--arms-file` `--require` `--policy` `--out-dir` |
-| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--arms-file` `--require` `--policy` `--seed` `--evidence-out` `--trial-out` |
-| `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` `--pages` `--policies` `--seed` |
+| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--out-dir` |
+| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--seed` `--evidence-out` `--trial-out` |
+| `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` / `--rates-json` `--pages` `--policies` `--seed` |
 | `advise` | `advise.py` | 证据行 → 下一步动作（只读，不执行） | `--route` `--json` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
 | `plan` | `plan.py` | 档案 lint + 从最早失败门推导执行计划 | 档案路径（位置参数） |
 | `report` | `report.py` | 从档案与证据表生成 Markdown 报告 | `--evidence` `--out` |
 | `check` | `self-check.py` | 仓库结构、脱敏、脚本语法与冒烟 | —（`--tests` 一并跑行为测试） |
+
+`quick` 只在全部 URL 都判为 `可行·HTTP` 时退出 0；出现待定、需浏览器、拦截、授权、不可达等任一结论即退出 1。`matrix` 在全部尝试都没有可行行、或提前 halted 时退出 1。
 
 ## 通用约定
 
@@ -127,6 +129,7 @@ recon stats recon/<代号>/evidence-before.jsonl --compare recon/<代号>/eviden
 - 每级记录 `http / bytes / 内容区 / final_url / outcome / attributable / rate_limited`。
 - 成功即停；`attributable: false` 的失败（限频、鉴权、内容不存在、链路噪声）也停——换栈救不了，先处理那个问题。
 - 只有可归因的 `blocked` / `degraded` 才继续试下一级；两级都拦且高阶成功时归为 `2 协议栈白名单`。
+- 选臂按 `host|路由类|响应类` 累计；`--cost-weight`（默认 0.1，0 关闭）按 5000ms 归一化压低慢臂。规则见 [strategy.md](strategy.md)。
 - 度量与归类的口径由 `scripts/reconlib/` 原子层提供，见 [atoms.md](atoms.md)。
 - 外部浏览器内核不在仓库内。把适配器写进仓库外的 `arms.json`，用 `--arms-file` / `RECON_ARMS_FILE` / `~/.config/site-recon/arms.json` 接入；契约与安全边界见 [arms.md](arms.md)。未配置的臂以 `skipped` 出现且不计请求预算。
 
@@ -137,12 +140,13 @@ recon stats recon/<代号>/evidence-before.jsonl --compare recon/<代号>/eviden
 ```bash
 recon crawl --from urls.txt --selector '#content' \
     --arms native,cffi:chrome --policy thompson --seed 7 \
-    --arms-file ~/.config/site-recon/arms.json \
+    --arms-file ~/.config/site-recon/arms.json --cost-weight 0.1 \
     --evidence-out recon/<代号>/evidence.jsonl --trial-out recon/<代号>/trials.jsonl
 ```
 
 - 默认护栏：`--max-pages 50`、`--max-requests 150`、`--delay 5`、连续 blocked 3 次熔断。
 - `--policy` 取 `thompson|ucb1|fixed|round_robin`；`--min-pulls` 控制每臂预热次数。
+- 证据行与试验行都带 `context`（`host|路由类|响应类`），试验行另带 `cost_ms`。
 - 只有可取内容的 `--evidence-out` 能喂 `stats`；`--trial-out` 是 `kind: trial` 的复盘日志，`stats` 会拒绝。
 - 退出码 `1` 表示预算或熔断导致提前停止，不是“所有页都可访问”。
 
@@ -155,9 +159,11 @@ recon crawl --from urls.txt --selector '#content' \
 ```bash
 recon bandit --arms native=0.4,cffi:chrome=0.75 --pages 200 --seed 7
 recon bandit --trials recon/<代号>/trials.jsonl --json
+recon bandit --rates-json recon/<代号>/rates.json --pages 200 --json
 ```
 
-- `--arms` 与 `--trials` 二选一；后者只取可归因、非限频的试验行。
+- `--arms` / `--trials` / `--rates-json` 三选一；`--trials` 只取可归因、非限频的试验行。
+- `--rates-json` 按上下文分组，每组独立选臂、独立更新后验；格式见 [strategy.md](strategy.md)。
 - `--policies` 默认跑 `thompson,ucb1,fixed,round_robin`，另附 `best-single` 期望基线。
 - 退出码 `0` 表示推演完成，不代表任何策略“已验证有效”。
 
@@ -172,7 +178,8 @@ recon advise recon/<代号>/evidence.jsonl --json
 recon advise recon/<代号>/evidence.jsonl --route /article/1
 ```
 
-- 输出契约 `advise/1`：`evidence`（计数快照）→ `findings` → `next`（`action` / `layer` / `countermeasure` / `why` / `confidence` / `commands` / `stop`）。
+- 输出契约 `advise/1`：`evidence`（计数快照，含按 `context` 汇总）→ `findings` → `next`（`action` / `layer` / `countermeasure` / `why` / `confidence` / `commands` / `stop`）。
+- 同一 host 下 `ok` 与 `blocked` 落在不同上下文时，会给出 `context-split`，提示先分组再换臂。
 - 不联网、不发请求、不执行命令；`commands` 只是待人工确认的字符串。
 - 只吃证据行；试验行（`kind: trial`）与未知路由退出 2。
 - 动作与优先级见 [agent.md](agent.md)。
@@ -187,6 +194,7 @@ recon matrix <url> --selector '#content' --passes 3  # 换栈是否翻转
 recon fetch <url> --selector '#content'              # 分层取内容
 recon crawl --from urls.txt --selector '#content'    # 批量：多臂选举 + 预算护栏
 recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演选臂策略
+recon bandit --rates-json recon/<代号>/rates.json    # 按上下文分组推演
 recon advise recon/<代号>/evidence.jsonl --json      # 证据行 → 下一步动作
 recon plan recon/<代号>/profile.yaml                 # 档案 → 计划
 recon stats recon/<代号>/evidence.jsonl              # 双指标

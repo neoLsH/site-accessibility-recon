@@ -33,6 +33,8 @@
 
 形态与概率门是分诊的前置：`recon shape` 先认页面形态（静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空态），`recon canary` 再用同栈多 pass 判断是否概率门。单发请求推不出翻转率。
 
+选臂只在合规客户端栈之间做，按 `host|路由类|响应类` 分上下文累计胜率；`quick` 每条 URL 只发一个请求、跨 URL 学习，`matrix` 默认穷举，`canary` 固定一条臂。规则见 [strategy.md](references/strategy.md)。
+
 ## 按需读取
 
 - 三态判据与闸门图：[references/triage-and-gates.md](references/triage-and-gates.md)
@@ -45,6 +47,7 @@
 - 全部命令、选项、判据、退出码与基线阈值：[references/cli.md](references/cli.md)
 - 原子层（量测 / 归类 / robots / 取样 / 节奏 / 证据 / 选举）与扩展方式：[references/atoms.md](references/atoms.md)
 - 客户端臂注册表、外部内核契约与能力过滤：[references/arms.md](references/arms.md)
+- 选臂上下文、奖励与成本、各能力点的选臂语义：[references/strategy.md](references/strategy.md)
 - 批量采集（多臂选举 / 预算护栏 / 证据行与试验行）：[references/crawl.md](references/crawl.md)
 - 离线推演（给定胜率比较选举策略）：[references/bandit.md](references/bandit.md)
 - Agent / LLM 接口（`advise/1` 契约、动作优先级、提示骨架与护栏）：[references/agent.md](references/agent.md)
@@ -78,6 +81,7 @@ scripts/recon.py fetch <url> --selector '#content'               # 客户端臂�
 scripts/recon.py fetch <url> --arms browser:chromium --arms-file ~/.config/site-recon/arms.json  # 外部内核（仓库不内置）
 scripts/recon.py crawl --from urls.txt --selector '#content'     # 批量取内容：多臂选举 + 预算 / 熔断护栏
 scripts/recon.py bandit --arms native=0.4,cffi:chrome=0.75       # 离线推演选臂策略
+scripts/recon.py bandit --rates-json recon/<代号>/rates.json      # 按上下文分组推演（不发请求）
 scripts/recon.py advise recon/<代号>/evidence.jsonl --json        # 证据行 → 下一步动作（只读，不执行）
 scripts/recon.py surface <url>                                  # 站点 JS 采集面：采了什么、往哪上报
 scripts/recon.py plan recon/<代号>/profile.yaml                  # 档案 lint + 执行计划

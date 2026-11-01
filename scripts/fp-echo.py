@@ -6,7 +6,7 @@
 而不是盯着一个分数。
 
 用法:
-    # 采集当前 curl 栈（与 client-matrix.sh 的 curl 行同栈）
+    # 采集当前 curl 栈（与 matrix.py 的 native 行同栈）
     scripts/fp-echo.py --out baseline.json
 
     # 采集浏览器级栈（需要 curl_cffi）

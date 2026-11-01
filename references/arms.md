@@ -90,15 +90,27 @@ userinfo（`http://user:pass@host/`）——适配器不接受凭证。
 - robots 与节流在调用臂之前完成；`robots: deny` 时一个请求都不发。
 - 外部命令按 argv 传递，禁止 `shell=True`；端点禁止 userinfo。
 
+## 上下文与成本
+
+臂的胜率不是全局一个数，而是按 `host|路由类|响应类` 分别累计；样本不足时沿
+`host|route|response → host|route|* → host|*|* → *` 回退聚合。慢臂按 5000ms
+归一化扣分，`--cost-weight` 默认 `0.1`，`0` 关闭。
+
+`degraded` 记半个奖励，`auth` / `missing` / `noise` / 限频不更新后验。完整规则、
+各能力点的选臂语义与读法见 [strategy.md](strategy.md)。
+
 ## 与能力点的关系
 
-`fetch` / `crawl` / `canary` 共用同一份注册表与编排：
+`fetch` / `crawl` / `canary` / `quick` / `matrix` 共用同一份注册表与编排：
 
 | 能力点 | 选臂语义 |
 |---|---|
 | `fetch` | 按 `--policy` 逐页选臂，默认 `fixed`（给定顺序） |
 | `crawl` | 按 host 在线学习，默认 `thompson` |
 | `canary` | 整个 pass 序列**固定一条臂**，否则翻转率会被选臂差异污染 |
+| `quick` | 每条 URL 一次请求，跨 URL 学习，默认 `thompson` |
+| `matrix` | 默认穷举全部臂，用来看翻转而不是省请求 |
+| `bandit` | 离线推演，只消费胜率，不发请求 |
 
 传 `--arms-file` 后，`--arms browser:chromium` 才会真正发请求；不配置时它会作为
 `skipped` 出现在尝试序列里，而不是静默消失。

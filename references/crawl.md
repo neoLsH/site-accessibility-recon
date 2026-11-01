@@ -5,11 +5,11 @@
 ## 它做什么
 
 ```
-读 URL → robots 闸门 → 按 host 取策略 → 选臂 → 节流 → 取一次 → 归类
+读 URL → robots 闸门 → 按 host + 上下文取策略 → 选臂 → 节流 → 取一次 → 归类
       → 更新策略与节奏 → 试下一臂 / 停手 → 落证据行 + 试验行
 ```
 
-- **按 host 分别学习**：不同站点的拦截策略不同，臂的胜率不能跨站共享。
+- **按 host 与上下文分别学习**：不同站点的拦截策略不同，臂的胜率不能跨站共享；同一站内还会按 `host|路由类|响应类` 再分开统计，样本不足时沿回退链聚合（见 [strategy.md](strategy.md)）。
 - **臂只有已有客户端协议栈**：`native`、`cffi:<profile>`，或外接的渲染服务（`browser:<engine>`，需仓库外配置）。不是“更多绕过手段”，而是把既有手段的选举做好；注册表见 [arms.md](arms.md)。
 - **失败可归因才换臂**：限频、鉴权、内容不存在、链路噪声换栈救不了，直接停手并如实记录。
 
@@ -17,15 +17,15 @@
 
 | 结局 | 对策略 | 对节奏 | 下一步 |
 |---|---|---|---|
-| `ok` | 记成功 | 重置退避 | 该页结束 |
-| `degraded` | 记失败 | 重置退避 | 试下一臂 |
+| `ok` | 记成功（1.0） | 重置退避 | 该页结束 |
+| `degraded` | 记半个奖励（0.5） | 重置退避 | 试下一臂 |
 | `blocked`（可归因） | 记失败 | 连续计数 +1，可能熔断 | 试下一臂 |
 | `blocked` + 限频 | 不更新 | 按 `Retry-After` 或指数退避 | 该页结束，**不自动重试** |
 | `auth` / `missing` | 不更新 | 重置 | 该页结束 |
 | `noise`（5xx / 链路） | 不更新 | 指数退避 | 该页结束 |
 | `blocked`（不可归因，未归类） | 不更新 | 计数 +1 | 该页结束 |
 
-`thompson` 是默认策略：每臂维护 Beta 后验，按采样值选臂，冷启动用 `--min-pulls` 各试一次。也可选 `ucb1`、`fixed`（按给定顺序）、`round_robin`；`--seed` 固定后 `thompson` 可复现。未配置或缺少 `--require` 能力的臂会记成 `skipped`，**不计请求预算、不触发熔断**，也不参与策略更新。
+`thompson` 是默认策略：每臂维护 Beta 后验，按采样值选臂，冷启动用 `--min-pulls` 各试一次。也可选 `ucb1`、`fixed`（按给定顺序）、`round_robin`；`--seed` 固定后 `thompson` 可复现。慢臂按 5000ms 归一化扣分，`--cost-weight` 默认 `0.1`，`0` 关闭。未配置或缺少 `--require` 能力的臂会记成 `skipped`，**不计请求预算、不触发熔断**，也不参与策略更新。
 
 ## 护栏（默认值即红线）
 
@@ -42,8 +42,8 @@
 
 | 文件 | 行类型 | 用途 | 能否进 stats |
 |---|---|---|---|
-| `--evidence-out` | 每页一行，含 `outcome` | 双指标结算 | 能 |
-| `--trial-out` | 每次尝试一行，`kind: trial` + `trial_outcome` | 复盘“试了哪条臂、为什么换” | **不能**，`stats` 会直接报错 |
+| `--evidence-out` | 每页一行，含 `outcome` / `context` | 双指标结算 | 能 |
+| `--trial-out` | 每次尝试一行，`kind: trial` + `trial_outcome` + `context` / `cost_ms` | 复盘“试了哪条臂、为什么换” | **不能**，`stats` 会直接报错 |
 
 一页最多一行证据：取最好的一次结局（`ok` > `degraded` > `blocked`）。试验行则保留每次尝试，用来解释选举过程；两者的分母不同，合并会让成功率虚高。
 
@@ -52,7 +52,7 @@
 ```bash
 recon crawl --from urls.txt --selector '#content' \
     --arms native,cffi:chrome,browser:chromium --policy thompson --seed 7 \
-    --arms-file ~/.config/site-recon/arms.json \
+    --arms-file ~/.config/site-recon/arms.json --cost-weight 0.1 \
     --evidence-out recon/demo/evidence.jsonl \
     --trial-out recon/demo/trials.jsonl
 
@@ -76,7 +76,7 @@ recon stats recon/demo/evidence.jsonl          # 跑完直接结算
 recon bandit --trials recon/demo/trials.jsonl --pages 200
 ```
 
-推演只回答“换策略值不值”，不产生新证据；偏差与读法见 [bandit.md](bandit.md)。
+推演只回答“换策略值不值”，不产生新证据；偏差与读法见 [bandit.md](bandit.md)。要按上下文分开推演，把各组胜率写进 `--rates-json`，格式见 [strategy.md](strategy.md)。
 
 ## 边界
 

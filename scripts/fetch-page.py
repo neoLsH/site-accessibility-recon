@@ -54,7 +54,7 @@ def probe(url, args, registry, arm_list):
     session = ArmSession(
         arm_list, registry=registry, policy=args.policy, delay=0.0,
         timeout=args.timeout, ua=args.ua, save=save, require=require,
-        permission=args.i_have_permission)
+        permission=args.i_have_permission, cost_weight=args.cost_weight)
     page = session.probe(
         url, selector=args.selector, min_content=args.min_content,
         max_attempts=len(arm_list), require=require,
@@ -151,6 +151,8 @@ def main():
     ap.add_argument("--require", default="", help="硬性能力要求，如 js（逗号分隔）")
     ap.add_argument("--policy", choices=ALGORITHMS, default="fixed",
                     help="选臂策略，默认 fixed（按给定顺序）")
+    ap.add_argument("--cost-weight", type=float, default=0.1,
+                    help="成本惩罚权重（5000ms 归一化），默认 0.1；0 关闭")
     ap.add_argument("--timeout", type=int, default=20)
     ap.add_argument("--delay", type=float, default=5.0, help="URL 之间的间隔，默认 5s")
     ap.add_argument("--out-dir", help="保存每级响应体")
@@ -173,6 +175,8 @@ def main():
         ap.print_help()
         return 2
     urls = [u if u.startswith(("http://", "https://")) else f"https://{u}" for u in urls]
+    if args.cost_weight < 0:
+        ap.error("--cost-weight 不能为负")
 
     try:
         registry = armreg.load(args.arms_file)

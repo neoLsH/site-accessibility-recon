@@ -1,6 +1,6 @@
 # 默认工具链
 
-原则：能用 `curl` / Node 解决的，不引入 Python；Python **第三方依赖**只用两处——浏览器级 TLS 指纹仿真（`curl_cffi`）和报告生成的可选 YAML 解析（`pyyaml`）。量内容区、解析 robots 这类解析用 Python 标准库，不需要装包。
+原则：能用 `curl` / Node 解决的，不引入 Python **第三方依赖**；Python 标准库用于编排与解析。第三方依赖只用两处——浏览器级 TLS 指纹仿真（`curl_cffi`）和报告生成的可选 YAML 解析（`pyyaml`）。量内容区、解析 robots 这类解析用 Python 标准库，不需要装包。
 
 ## 按任务选工具
 
@@ -8,7 +8,7 @@
 |---|---|---|---|
 | DNS / 连通性 | `dig` + `curl -v` | `nslookup` | 先看解析，再看握手 |
 | TLS 版本 / 证书 / SNI | `openssl s_client` | `curl -v` | `-servername` 别省 |
-| HTTP 客户端对照 | `scripts/client-matrix.sh` | 手工 curl | 一次跑多栈，自动节流 |
+| HTTP 客户端对照 | `scripts/matrix.py` | 手工 curl | 默认穷举臂，一次跑多栈并自动节流 |
 | 浏览器级 TLS 指纹 | `curl_cffi`（`impersonate`） | 回显服务 | 唯一需要第三方 Python 包的地方 |
 | H2 参数指纹 | 回显服务 | 本地抓包 | 自建 H2 客户端成本高，不值得 |
 | 页面内指纹 | `scripts/fingerprint-probe.js` | 浏览器侧读数页 | 探针已含 CDP 泄漏检测；读数页见 fingerprint-methods.md |
@@ -16,13 +16,14 @@
 | 站点 JS 采集面 | `scripts/js-surface.py` | 手工 grep bundle | 静态命中 ≠ 运行时调用，需动态确认 |
 | 取内容（阶梯） | `scripts/fetch-page.py` | 手工逐级 curl | 失败时顺带给出 WAF 归类；`--rung` 只跑一级 |
 | 批量取内容 | `scripts/crawl.py` | 循环 curl + 手写重试 | MAB 选臂 + 预算 / 节流 / 熔断，见 [crawl.md](crawl.md) |
+| 选臂上下文与成本 | `reconlib/context.py` + `ContextualBandit` | 手写按路由分支 | 键、回退链与奖励见 [strategy.md](strategy.md) |
 | 推演选臂策略 | `scripts/bandit.py` | 直接换策略上线 | 离线比较请求开销，不发请求，见 [bandit.md](bandit.md) |
 | 证据行 → 下一步动作 | `scripts/advise.py` | 自己凭感觉选下一步 | 只读、带停止条件，供 Agent / LLM 消费，见 [agent.md](agent.md) |
 | 复用量测 / 归类 / 取样 | `scripts/reconlib/` | 复制脚本片段 | 原子层只有一份口径，见 [atoms.md](atoms.md) |
 | 浏览器自动化 | 你的渲染服务 / Playwright | 直连 CDP | 优先复用已有渲染链路 |
 | 外部浏览器内核接入 | `reconlib/render.py` 的 `cmd` / `http` 适配 | 自己包一层 CLI | 仓库不内置内核；契约见 [arms.md](arms.md) |
-| 内容区度量 | `client-matrix.sh --selector` / `--html` | 浏览器 evaluate | 整页长度不可用 |
-| 可行性快筛 | `scripts/quick-check.sh` | 手工三步 | 有界：每 URL 1 次 + 每 origin 1 次 robots |
+| 内容区度量 | `matrix.py --selector` / `--html` | 浏览器 evaluate | 整页长度不可用 |
+| 可行性快筛 | `scripts/quick.py` | 手工三步 | 有界：每 URL 1 次 + 每 origin 1 次 robots；跨 URL 学选臂 |
 | 结论报告 | `scripts/report.py` | 手写 | 从档案 + 证据表渲染 |
 | JSON / CSV 处理 | `jq` / `awk` | `node -e` | 别为此装 Python 库 |
 

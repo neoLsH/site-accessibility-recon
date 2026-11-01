@@ -52,27 +52,25 @@ $ ./scripts/recon.py quick https://example.com --selector body
 verdict  http  bytes  content  final_url            url                reason
 待定      200   577    156      https://example.com/  https://example.com  内容区 156 低于下限 200，且无 CSR 迹象
 
-结论：0/1 条可行，1 条需进一步分析
+结论：0/1 条可直接由 HTTP 取得内容，1 条需浏览器实测或进一步分析
 ```
 
-「待定」不是失败，是**信号不足**。接着跑客户端栈矩阵：
+（首次运行会附判定词表；上面从略。）「待定」不是失败，是**信号不足**。接着跑客户端栈矩阵：
 
 ```text
-$ ./scripts/recon.py matrix https://example.com --selector body --passes 2
-client               identity  http  bytes  content  time_s   final_url
-# pass 1/2
-curl(native)         chrome    200   577    156      0.546660  https://example.com/
-curl(native)         safari    200   577    156      0.626322  https://example.com/
-curl_cffi(chrome)    chrome    200   577    156      0.977     https://example.com/
-curl_cffi(safari)    safari    200   577    156      0.669     https://example.com/
-node-fetch(undici)   chrome    200   577    156      0.672     https://example.com/
-python-requests      chrome    200   577    156      0.644     https://example.com/
-# pass 2/2 —— http / bytes / content 与 pass 1 完全一致，仅耗时略变
+$ ./scripts/recon.py matrix https://example.com --selector body --passes 2 --delay 0
+client       identity  http  bytes  content  time_s  final_url
+native       -         200   577    156      0.545   https://example.com/
+cffi:chrome  chrome    200   577    156      0.968   https://example.com/
+native       -         200   577    156      0.640   https://example.com/
+cffi:chrome  chrome    200   577    156      0.794   https://example.com/
 ```
+
+默认臂是 `native,cffi:chrome`；装了更多外部内核时用 `--arms` / `--arms-file` 扩列。
 
 怎么读这段：
 
-- 六行结果（四个客户端栈 × 两种身份）、两个 pass，**没有一个格翻转**，字节数恒为 577 → 不存在 L2 传输闸门，也没有 L3 身份规则。
+- 两条臂、两个 pass，**没有一个格翻转**，字节数恒为 577 → 不存在 L2 传输闸门。
 - 但 `content` 只有 156，低于下限 → 这时**不能**下「可访问」的结论，只能说「这个栈组能拿到内容，但内容区就这么长」。
 - 还缺真实浏览器基线这一行。补齐之前，正确输出就是「待定」。
 
@@ -192,14 +190,14 @@ recon <命令> [参数...] [--json]
 | 命令 | 背后 | 说明 |
 |---|---|---|
 | `doctor` | `preflight.sh` | 环境自检：缺什么、缺了会降级成什么 |
-| `quick` | `quick-check.sh` | 可行性快筛：每 URL 1 请求 + robots |
+| `quick` | `quick.py` | 可行性快筛：每 URL 1 请求 + robots，跨 URL 学选臂 |
 | `shape` | `shape.py` | 单响应形态分类：静态 / CSR 空壳 / 挑战 / 登录墙 / 业务空态 |
-| `matrix` | `client-matrix.sh` | 客户端栈矩阵 + 内容区长度 |
+| `matrix` | `matrix.py` | 客户端栈矩阵 + 内容区长度，默认穷举全部臂 |
 | `canary` | `canary.py` | 概率门定性：同栈多 pass，翻转率与内容区间；`--save` / `--compare` 做基线回归 |
 | `stats` | `stats.py` | 双指标结算：按路由拆分并附 Wilson 区间；`--compare` 出改前改后差值与 Newcombe 区间 |
 | `fetch` | `fetch-page.py` | 客户端臂阶梯取内容 + WAF 归类；`--rung` 只跑一级 |
 | `crawl` | `crawl.py` | 批量取内容：多臂选举客户端臂，预算 / 节流 / 熔断护栏，产出证据行与试验行 |
-| `bandit` | `bandit.py` | 离线推演选臂策略：给定胜率比较请求开销与成功率，不发请求 |
+| `bandit` | `bandit.py` | 离线推演选臂策略：给定胜率比较请求开销与成功率，不发请求；`--rates-json` 按上下文分组 |
 | `advise` | `advise.py` | 证据行 → 下一步动作：只读、带停止条件，`advise/1` 契约供 Agent / LLM 消费 |
 | `surface` | `js-surface.py` | 站点 JS 采集面：静态扫六类采集与上报通道 |
 | `fp` | `fp-echo.py` | `fp collect` 采集快照 / `fp diff A B` 比对 |
@@ -275,6 +273,7 @@ references/
   cli.md                      # 命令、选项、判据、退出码、基线阈值与指标行格式
   atoms.md                    # 原子层：度量 / 归类 / 合规 / 取样 / 节奏 / 证据 / 选举
   arms.md                     # 客户端臂：注册表、外部内核契约、能力过滤与安全边界
+  strategy.md                 # 选臂上下文、奖励与成本、各能力点的选臂语义与读法
   crawl.md                    # 批量采集：多臂选举、护栏、证据行与试验行
   bandit.md                   # 离线推演：胜率来源、指标读法、偏差与限制
   agent.md                    # Agent / LLM 接口：advise/1 契约、动作优先级、提示骨架与护栏
@@ -293,9 +292,11 @@ assets/
 scripts/
   recon.py                    # 统一入口：doctor / quick / shape / matrix / canary / stats / fetch / crawl / bandit / advise / surface / fp / plan / report / check
   preflight.sh                # 环境自检（必需 / 可选工具与版本）
-  quick-check.sh              # 可行性快筛（robots 检查 + 1 请求 + 内容区）
+  quick-check.sh              # 薄壳：转调 quick.py（保留旧入口）
+  quick.py                    # 可行性快筛（robots + 1 请求/URL + 跨 URL 选臂）
   shape.py                    # 单响应形态分类（启发式，可 --html 离线 / --explain / --signals）
-  client-matrix.sh            # 客户端栈矩阵
+  client-matrix.sh            # 薄壳：转调 matrix.py（保留旧入口）
+  matrix.py                   # 客户端栈矩阵（默认穷举臂，可多 pass / 停在上限）
   canary.py                   # 概率门：同栈多 pass 的翻转率与内容区间；基线保存与对比
   stats.py                    # 双指标结算：按路由拆分 + Wilson 区间；--compare 出差值 + Newcombe 区间
   fingerprint-probe.js        # 指纹快照 + CDP 泄漏探针
@@ -304,12 +305,12 @@ scripts/
   crawl.py                    # 批量取内容：MAB 选臂 + 预算 / 节流 / 熔断 + 证据行
   bandit.py                   # 离线推演选臂策略：胜率 → 请求开销与成功率（不发请求）
   advise.py                   # 证据行 → 下一步动作：只读、带停止条件（advise/1 契约）
-  reconlib/                   # 原子层：measure / classify / robots / fetch / arms / render / pacing / evidence / policy / simulate / advice；session 是编排层（唯一口径来源）
+  reconlib/                   # 原子层：measure / classify / robots / fetch / arms / render / pacing / evidence / context / policy / simulate / advice；session 是编排层（唯一口径来源）
   js-surface.py               # 站点 JS 采集面静态扫描
   plan.py                     # 档案 lint + 执行计划推导
   report.py                   # 从 profile.yaml + evidence.csv 生成报告
   self-check.py               # 结构、脱敏、脚本语法与冒烟校验（--tests 一并跑行为测试）
-tests/                        # stdlib unittest：原子 / 取值 / 形态 / 概率门 / 指标 / 计划 / 节奏 / 证据 / 选举 / 批量采集 / 推演 / 建议 / 臂注册表 / 外部内核 / 编排（本地 server，无外网）
+tests/                        # stdlib unittest：原子 / 取值 / 形态 / 概率门 / 指标 / 计划 / 节奏 / 证据 / 上下文 / 选举 / 批量采集 / 推演 / 建议 / 臂注册表 / 外部内核 / 编排（本地 server，无外网）
 adapters/
   README.md
   install.sh
@@ -327,7 +328,7 @@ python3 scripts/self-check.py            # 结构 / 脱敏 / 脚本语法 / 冒�
 python3 -m unittest discover -s tests -v # 行为测试（本地 fixture，无外网）
 ```
 
-覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识，扫描范围含示例站与 fixture）、全部脚本与测试语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行、**案例结构**（章节齐全、编号规范、置信度已标）、**版本记录**（`CHANGELOG.md` 含当前版本）、**执行计划可运行**（模板与示例档案 lint 均无 ERROR）、**节流护栏**（`canary` 的 pass 上限与默认间隔）、**形态判据表**（可解析且被 `shape.py` 默认加载）、**双指标口径**（示例证据行结算为 6/7 可访问、4/6 完整）、**改前改后对比**（示例整体仅完整率改善、小样本判不足、无回归）、**原子层契约**（`reconlib` 可导入、度量与归类口径稳定、`fetch-page` 复用）、**批量采集护栏**（`crawl` 的 pages / requests / 间隔 / 熔断常量受限，试验行被 `stats` 拒绝）、**离线推演**（`bandit` 不发请求、同 seed 可复现，示例试验行估出 0.40 / 0.75）、**建议层**（`advise` 只读、示例判补样本、噪声剔出分母、试验行被拒、建议带停止条件）、**行为测试接入**（`tests/` 用例已进 CI）。`python3 scripts/self-check.py --tests` 会顺带跑一遍行为测试。退出码非 0 即不可发布。
+覆盖：必备文件、frontmatter 规范（name / 单行 description / 长度）、SKILL.md 行数（≤150）、未决占位符、相对链接可解析、脱敏红线（站点名 / 厂商名 / 非标准状态码 / Cookie 名 + 仓库外词表里的内网标识，扫描范围含示例站与 fixture）、全部脚本与测试语法（`.sh` / `.js` / `.py`）、工作区骨架（内容被忽略、骨架可入库）、`recon` 入口可运行、**案例结构**（章节齐全、编号规范、置信度已标）、**版本记录**（`CHANGELOG.md` 含当前版本）、**执行计划可运行**（模板与示例档案 lint 均无 ERROR）、**节流护栏**（`canary` 的 pass 上限与默认间隔）、**形态判据表**（可解析且被 `shape.py` 默认加载）、**双指标口径**（示例证据行结算为 6/7 可访问、4/6 完整）、**改前改后对比**（示例整体仅完整率改善、小样本判不足、无回归）、**原子层契约**（`reconlib` 可导入、度量与归类口径稳定、`fetch-page` 复用）、**批量采集护栏**（`crawl` 的 pages / requests / 间隔 / 熔断常量受限，试验行被 `stats` 拒绝）、**离线推演**（`bandit` 不发请求、同 seed 可复现，示例试验行估出 0.40 / 0.75）、**策略上下文**（上下文键与回退链稳定、`quick` / `matrix` 薄壳转调 Python、`bandit --rates-json` 按上下文分组）、**建议层**（`advise` 只读、示例判补样本、噪声剔出分母、试验行被拒、建议带停止条件）、**行为测试接入**（`tests/` 用例已进 CI）。`python3 scripts/self-check.py --tests` 会顺带跑一遍行为测试。退出码非 0 即不可发布。
 
 行为测试用 stdlib `unittest` + 本地 `ThreadingHTTPServer`，不访问外网、不需要浏览器；CI 每次 push / PR 各跑一遍。
 
@@ -380,7 +381,7 @@ python3 -m unittest discover -s tests -v # 行为测试（本地 fixture，无�
 
 ## 状态
 
-v1.14.0 — 把「客户端臂」从两个硬编码名字变成可扩展注册表：内置 `native` / `cffi:<profile>` / `browser:<engine>`，外部浏览器内核通过 `cmd` 或 `http` 适配器接入（仓库不内置），配置放在仓库外（`--arms-file` / `RECON_ARMS_FILE` / `~/.config/site-recon/arms.json`）。新增 [arms.md](references/arms.md)、`reconlib/arms.py`、`render.py` 与统一编排层 `session.py`（robots → 节流 → 选臂 → 取样 → 归类 → 更新 → 行）；`fetch` / `crawl` / `canary` 全部接入，`canary` 仍在整个 pass 序列固定一条臂以保翻转率口径。未配置的外部臂以 `skipped` 出现且不计请求预算；外部命令不经 shell，响应体上限 16 MiB。默认行为与输出字段不变。v1.13.0 — 把“下一步做什么”和“能力以什么形态交付”补齐：新增 `recon advise`（[advise.py](scripts/advise.py) + [agent.md](references/agent.md)），把证据行翻译成唯一动作、层、理由、置信度与停止条件（`advise/1` 契约），只读、不联网、不执行命令、拒绝试验行；原子层新增 `advice`（[atoms.md](references/atoms.md)）；新增 [forms.md](references/forms.md) 说明 Skill / CLI / Agent / LLM 四种形态的分工与共享契约；新增 18 个用例与自检建议层冒烟。v1.12.0 — 把“换不换选举策略”变成离线可算的问题：新增 `recon bandit`（[bandit.py](scripts/bandit.py) + [bandit.md](references/bandit.md)），用每臂胜率推演 `thompson` / `ucb1` / `fixed` / `round_robin` 的请求开销与成功率，并给出 `best-single` 期望基线；胜率可手给（`--arms`）或从 `crawl` 的试验行估计（`--trials`，只取可归因、非限频尝试）。原子层新增 `simulate`（[atoms.md](references/atoms.md)），同 seed 可复现、不发请求；新增示例试验行与 19 个用例；自检校验推演离线性与示例口径。v1.11.0 — 把批量取内容变成可结算的编排：新增 `recon crawl`（[crawl.py](scripts/crawl.py) + [crawl.md](references/crawl.md)），用多臂老虎机在已有客户端臂之间选举（`thompson` / `ucb1` / `fixed` / `round_robin`，按 host 学习胜率），强制 `--max-pages 50` / `--max-requests 150` / 每 host 5s 间隔 / 连续 3 次 blocked 熔断；`429` 只推迟下一次请求、不自动重试；`robots: deny` 的 URL 一个请求都不发。原子层扩到七个（[atoms.md](references/atoms.md)）：`pacing` 管节流退避熔断、`evidence` 管证据行与试验行、`policy` 管选臂，`stats` 显式拒绝 `kind: trial` 的试验行，避免把尝试次数当页面数。自检新增批量采集护栏与试验行隔离。v1.10.0 — 把单点能力拆成原子：新增 `scripts/reconlib/`（[atoms.md](references/atoms.md)），`measure` 量内容区、`classify` 归结局与可归因性、`robots` 判合规、`fetch` 管客户端臂；`fetch-page.py` 改为只做阶梯编排，并新增 `--rung both|native|cffi`。归类新增 `attributable` / `rate_limited`：不可归因的失败（限频、鉴权、内容不存在、链路噪声）不再继续换栈。自检把原子契约与 `reconlib` 语法纳入门禁。v1.9.0 — 把 A/B 对比从人眼判断变成可结算的输出：`recon stats <改前行> --compare <改后行>`（[stats.py](scripts/stats.py) + [metrics.md](references/metrics.md)）只比两侧都有的路由，逐项给改前、改后、差值与 Newcombe hybrid score 95% 区间（两个独立比例的差），按**未取整**区间落 `improved` / `regressed` / `inconclusive`；任一侧分母低于 `--min-den`（默认 10）或为 0 时标 `insufficient` 并给出差距，不拿小样本下方向；任一路由判回归即退出 1，只在一侧出现的路由单独列出、不进差值。新增改前 / 改后示例证据行与 6 个对比用例，自检增加对比冒烟（整体改善、小样本判不足、无回归），[cli.md](references/cli.md)、[walkthrough.md](references/walkthrough.md) 补输出与读法。v1.8.0 — 把「结论」变成可复现的产物：`recon stats`（[stats.py](scripts/stats.py) + [metrics.md](references/metrics.md)）按路由结算双指标并给 Wilson 95% 区间，噪声单列、两个分母不合并；`recon canary --save/--compare`（[canary.py](scripts/canary.py)）把回归固化成基线与四项阈值（判定翻转、翻转率 +0.2、内容中位数 −20%、噪声 +0.2）；`recon shape` 的判据外置到 [shape-signals.json](assets/shape-signals.json)，新增 `--explain` 与 `--signals`；新增 [references/walkthrough.md](references/walkthrough.md) 与 [assets/example/](assets/example/) 本地示例站，九步走查不碰真实目标；常用命令与判据下沉到 [references/cli.md](references/cli.md)，`SKILL.md` 降到 130 行；新增 `tests/`（stdlib unittest，本地 server，无外网）并接进 CI；自检增加形态判据表、双指标口径与测试接入三项。v1.7.0 — 把探索与执行两侧补成闭环：`recon shape`（[site-shapes.md](references/site-shapes.md)）先认八种页面形态，避免用错判据；`recon canary`（[canary.py](scripts/canary.py)）用同栈多 pass 的翻转率区分确定性闸门与概率门，硬上限 10 pass、间隔不低于 2s；`recon plan`（[plan.py](scripts/plan.py) + [execution.md](references/execution.md)）先 lint 档案（证据绑定、`null`/`0`、疑似站点常量、过期），再按最早失败的门推导 S 级、五步动作与停止条件。自检新增执行计划冒烟与节流护栏两项。v1.6.0 — 对齐 Agent Skills 生态的六件事：`SKILL.md` frontmatter 补 `license` / `compatibility` / `allowed-tools`（运行时依赖从 `preflight.sh` 提到激活时可见）；新增 [反模式黑名单](references/anti-patterns.md)（10 条，含替代做法）与 [诊断质量评分卡](references/review-scorecard.md)（五维 100 分，独立 reviewer 盲评，产出 `recon/<代号>/REVIEW.md`）；[evidence-matrix.md](references/evidence-matrix.md) 补子 agent 编排（一个实验一个子 agent、只回报结构化行、缺对照整批作废）；新增 [CONTRIBUTING.md](CONTRIBUTING.md)、PR / issue 模板、`CHANGELOG.md`；自检增加案例结构与版本记录校验。此前各版本见 [CHANGELOG.md](CHANGELOG.md)。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑自检与行为测试。已知限制：走查与行为测试都跑在本地示例站上，尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。Agent 形态只提供 `advise/1` 契约与 CLI，不含常驻调度器，循环与人工确认由宿主负责。外部内核的质量取决于适配器：仓库只校验 `cmd` / `http` 契约（JSON、16 MiB、错误归 `noise`），不保证渲染结果、登录态或出口与真实浏览器一致。
+v1.15.0 — 把选臂从“按 host 学胜率”推进到“按上下文 + 成本学”：新增 `reconlib/context.py`（`host|路由类|响应类` 键与回退链）与 `ContextualBandit`（`ok=1.0` / `degraded=0.5` / `blocked=0.0`；`auth` / `missing` / `noise` / 限频不更新；按 5000ms 归一化的成本惩罚，`--cost-weight` 默认 0.1、0 关闭）。`fetch` / `crawl` / `quick` 全部接入，证据行与试验行带 `context`，试验行另带 `cost_ms`；`quick`（[quick.py](scripts/quick.py)）与 `matrix`（[matrix.py](scripts/matrix.py)）改为 Python 实现，旧 `.sh` 变薄壳，`quick` 每条 URL 只发一个请求、跨 URL 学习，`matrix` 默认穷举；`bandit --rates-json` 支持按上下文分组推演；`advise` 增加 `context-split` 差异发现。新增 [strategy.md](references/strategy.md)，同步 `SKILL.md`、`README.md`、`AGENTS.md`、`atoms.md`、`arms.md`、`cli.md`、`crawl.md`、`bandit.md`、`forms.md`、`agent.md`、`toolbox.md`。v1.14.0 — 把「客户端臂」从两个硬编码名字变成可扩展注册表：内置 `native` / `cffi:<profile>` / `browser:<engine>`，外部浏览器内核通过 `cmd` 或 `http` 适配器接入（仓库不内置），配置放在仓库外（`--arms-file` / `RECON_ARMS_FILE` / `~/.config/site-recon/arms.json`）。新增 [arms.md](references/arms.md)、`reconlib/arms.py`、`render.py` 与统一编排层 `session.py`（robots → 节流 → 选臂 → 取样 → 归类 → 更新 → 行）；`fetch` / `crawl` / `canary` 全部接入，`canary` 仍在整个 pass 序列固定一条臂以保翻转率口径。未配置的外部臂以 `skipped` 出现且不计请求预算；外部命令不经 shell，响应体上限 16 MiB。默认行为与输出字段不变。v1.13.0 — 把“下一步做什么”和“能力以什么形态交付”补齐：新增 `recon advise`（[advise.py](scripts/advise.py) + [agent.md](references/agent.md)），把证据行翻译成唯一动作、层、理由、置信度与停止条件（`advise/1` 契约），只读、不联网、不执行命令、拒绝试验行；原子层新增 `advice`（[atoms.md](references/atoms.md)）；新增 [forms.md](references/forms.md) 说明 Skill / CLI / Agent / LLM 四种形态的分工与共享契约；新增 18 个用例与自检建议层冒烟。v1.12.0 — 把“换不换选举策略”变成离线可算的问题：新增 `recon bandit`（[bandit.py](scripts/bandit.py) + [bandit.md](references/bandit.md)），用每臂胜率推演 `thompson` / `ucb1` / `fixed` / `round_robin` 的请求开销与成功率，并给出 `best-single` 期望基线；胜率可手给（`--arms`）或从 `crawl` 的试验行估计（`--trials`，只取可归因、非限频尝试）。原子层新增 `simulate`（[atoms.md](references/atoms.md)），同 seed 可复现、不发请求；新增示例试验行与 19 个用例；自检校验推演离线性与示例口径。v1.11.0 — 把批量取内容变成可结算的编排：新增 `recon crawl`（[crawl.py](scripts/crawl.py) + [crawl.md](references/crawl.md)），用多臂老虎机在已有客户端臂之间选举（`thompson` / `ucb1` / `fixed` / `round_robin`，按 host 学习胜率），强制 `--max-pages 50` / `--max-requests 150` / 每 host 5s 间隔 / 连续 3 次 blocked 熔断；`429` 只推迟下一次请求、不自动重试；`robots: deny` 的 URL 一个请求都不发。原子层扩到七个（[atoms.md](references/atoms.md)）：`pacing` 管节流退避熔断、`evidence` 管证据行与试验行、`policy` 管选臂，`stats` 显式拒绝 `kind: trial` 的试验行，避免把尝试次数当页面数。自检新增批量采集护栏与试验行隔离。v1.10.0 — 把单点能力拆成原子：新增 `scripts/reconlib/`（[atoms.md](references/atoms.md)），`measure` 量内容区、`classify` 归结局与可归因性、`robots` 判合规、`fetch` 管客户端臂；`fetch-page.py` 改为只做阶梯编排，并新增 `--rung both|native|cffi`。归类新增 `attributable` / `rate_limited`：不可归因的失败（限频、鉴权、内容不存在、链路噪声）不再继续换栈。自检把原子契约与 `reconlib` 语法纳入门禁。v1.9.0 — 把 A/B 对比从人眼判断变成可结算的输出：`recon stats <改前行> --compare <改后行>`（[stats.py](scripts/stats.py) + [metrics.md](references/metrics.md)）只比两侧都有的路由，逐项给改前、改后、差值与 Newcombe hybrid score 95% 区间（两个独立比例的差），按**未取整**区间落 `improved` / `regressed` / `inconclusive`；任一侧分母低于 `--min-den`（默认 10）或为 0 时标 `insufficient` 并给出差距，不拿小样本下方向；任一路由判回归即退出 1，只在一侧出现的路由单独列出、不进差值。新增改前 / 改后示例证据行与 6 个对比用例，自检增加对比冒烟（整体改善、小样本判不足、无回归），[cli.md](references/cli.md)、[walkthrough.md](references/walkthrough.md) 补输出与读法。v1.8.0 — 把「结论」变成可复现的产物：`recon stats`（[stats.py](scripts/stats.py) + [metrics.md](references/metrics.md)）按路由结算双指标并给 Wilson 95% 区间，噪声单列、两个分母不合并；`recon canary --save/--compare`（[canary.py](scripts/canary.py)）把回归固化成基线与四项阈值（判定翻转、翻转率 +0.2、内容中位数 −20%、噪声 +0.2）；`recon shape` 的判据外置到 [shape-signals.json](assets/shape-signals.json)，新增 `--explain` 与 `--signals`；新增 [references/walkthrough.md](references/walkthrough.md) 与 [assets/example/](assets/example/) 本地示例站，九步走查不碰真实目标；常用命令与判据下沉到 [references/cli.md](references/cli.md)，`SKILL.md` 降到 130 行；新增 `tests/`（stdlib unittest，本地 server，无外网）并接进 CI；自检增加形态判据表、双指标口径与测试接入三项。v1.7.0 — 把探索与执行两侧补成闭环：`recon shape`（[site-shapes.md](references/site-shapes.md)）先认八种页面形态，避免用错判据；`recon canary`（[canary.py](scripts/canary.py)）用同栈多 pass 的翻转率区分确定性闸门与概率门，硬上限 10 pass、间隔不低于 2s；`recon plan`（[plan.py](scripts/plan.py) + [execution.md](references/execution.md)）先 lint 档案（证据绑定、`null`/`0`、疑似站点常量、过期），再按最早失败的门推导 S 级、五步动作与停止条件。自检新增执行计划冒烟与节流护栏两项。v1.6.0 — 对齐 Agent Skills 生态的六件事：`SKILL.md` frontmatter 补 `license` / `compatibility` / `allowed-tools`（运行时依赖从 `preflight.sh` 提到激活时可见）；新增 [反模式黑名单](references/anti-patterns.md)（10 条，含替代做法）与 [诊断质量评分卡](references/review-scorecard.md)（五维 100 分，独立 reviewer 盲评，产出 `recon/<代号>/REVIEW.md`）；[evidence-matrix.md](references/evidence-matrix.md) 补子 agent 编排（一个实验一个子 agent、只回报结构化行、缺对照整批作废）；新增 [CONTRIBUTING.md](CONTRIBUTING.md)、PR / issue 模板、`CHANGELOG.md`；自检增加案例结构与版本记录校验。此前各版本见 [CHANGELOG.md](CHANGELOG.md)。`scripts/self-check.py` 作为发布门禁，GitHub Actions 每次 push 自动跑自检与行为测试。已知限制：走查与行为测试都跑在本地示例站上，尚未对公开目标做完整的端到端实测，也只在 Claude Code 上验证过加载；其他 Agent 走 `SKILL.md` / `AGENTS.md` 标准读取。Agent 形态只提供 `advise/1` 契约与 CLI，不含常驻调度器，循环与人工确认由宿主负责。外部内核的质量取决于适配器：仓库只校验 `cmd` / `http` 契约（JSON、16 MiB、错误归 `noise`），不保证渲染结果、登录态或出口与真实浏览器一致。上下文只按 URL 路径与首次结局粗分，可能把相似页面合并统计；成本只用于同类页面内排序，不跨上下文比较绝对耗时。
 
 ## License
 

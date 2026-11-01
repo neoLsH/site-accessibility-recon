@@ -51,7 +51,8 @@ def crawl(urls, args):
         arm_list, registry=registry, policy=args.policy, seed=args.seed,
         min_pulls=args.min_pulls, delay=args.delay, timeout=args.timeout,
         ua=args.ua, max_consecutive_blocked=args.max_consecutive_blocked,
-        save=save, require=require, permission=args.i_have_permission)
+        save=save, require=require, permission=args.i_have_permission,
+        cost_weight=args.cost_weight)
 
     pages, requests, stopped = [], 0, None
     warned = set()
@@ -147,6 +148,8 @@ def main():
                     help="选举策略，默认 thompson")
     ap.add_argument("--seed", type=int, help="thompson 的随机种子（复现用）")
     ap.add_argument("--min-pulls", type=int, default=1, help="每臂预热次数，默认 1")
+    ap.add_argument("--cost-weight", type=float, default=0.1,
+                    help="成本惩罚权重（5000ms 归一化），默认 0.1；0 关闭")
     ap.add_argument("--max-pages", type=int, default=MAX_PAGES,
                     help=f"最多处理多少 URL，默认 {MAX_PAGES}")
     ap.add_argument("--max-requests", type=int, default=MAX_REQUESTS,
@@ -170,6 +173,8 @@ def main():
         ap.error("--max-pages / --max-requests 必须 >= 1")
     if args.delay < 0:
         ap.error("--delay 不能为负")
+    if args.cost_weight < 0:
+        ap.error("--cost-weight 不能为负")
     from reconlib import arms as armreg
     try:
         registry = armreg.load(args.arms_file)
