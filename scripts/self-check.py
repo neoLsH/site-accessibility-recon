@@ -86,6 +86,7 @@ REQUIRED = [
     "scripts/preflight.sh",
     "scripts/quick.py",
     "scripts/quick-check.sh",
+    "scripts/matrix.py",
     "scripts/client-matrix.sh",
     "scripts/fingerprint-probe.js",
     "scripts/fp-echo.py",
@@ -131,6 +132,7 @@ REQUIRED = [
     "tests/test_context.py",
     "tests/test_policy_context.py",
     "tests/test_quick.py",
+    "tests/test_matrix.py",
 ]
 
 # 脱敏红线：命中即失败。这里只放公开可提的站点 / 厂商。
