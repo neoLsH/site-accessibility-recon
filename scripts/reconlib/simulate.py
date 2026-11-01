@@ -95,6 +95,56 @@ def simulate(policy, rates, pages=200, seed=None, min_pulls=1):
     }
 
 
+def simulate_contexts(policy, groups, pages=None, seed=None, min_pulls=1,
+                      cost_weight=0.0):
+    """按上下文分组的胜率采样：每个上下文独立选臂、独立更新后验。"""
+    from .policy import ContextualBandit
+
+    if not groups:
+        raise ValueError("至少需要一个上下文组")
+    total_pages = pages or sum(g.get("pages", 0) for g in groups) or 1
+    rng = random.Random(seed)
+    bandit = ContextualBandit(
+        sorted({a for g in groups for a in g["rates"]}),
+        algorithm=policy, seed=seed, min_pulls=min_pulls,
+        cost_weight=cost_weight)
+    requests = successes = 0
+    pulls = {}
+    context_rows = {}
+    for group in groups:
+        ctx = group["context"]
+        rates = group["rates"]
+        n = group.get("pages") or max(1, total_pages // len(groups))
+        gpulls = {a: 0 for a in rates}
+        gwins = {a: 0 for a in rates}
+        for _ in range(n):
+            candidates = list(rates)
+            while candidates:
+                arm = bandit.select("sim", ctx, candidates)
+                requests += 1
+                pulls[arm] = pulls.get(arm, 0) + 1
+                gpulls[arm] += 1
+                ok = rng.random() < rates[arm]
+                bandit.update("sim", ctx, arm, "ok" if ok else "blocked",
+                              cost_ms=0)
+                if ok:
+                    successes += 1
+                    gwins[arm] += 1
+                    break
+                candidates.remove(arm)
+        context_rows[ctx] = {"pages": n, "pulls": gpulls, "wins": gwins}
+    return {
+        "policy": policy,
+        "pages": total_pages,
+        "requests": requests,
+        "successes": successes,
+        "access_rate": successes / total_pages if total_pages else 0,
+        "requests_per_success": (requests / successes) if successes else None,
+        "pulls": pulls,
+        "contexts": context_rows,
+    }
+
+
 def best_single(rates, pages=200):
     """基线：始终只用一个最强的臂、每页一次请求。"""
     if not rates:

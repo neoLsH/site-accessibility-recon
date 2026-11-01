@@ -77,6 +77,39 @@ class BanditCliTest(unittest.TestCase):
                 r = support.run("bandit", *args, *BASE)
                 self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
 
+    def test_rates_json_context_groups(self):
+        path = support.write_temp(json.dumps({
+            "contexts": [
+                {"context": "article|unknown", "pages": 40,
+                 "rates": {"native": 0.4, "cffi:chrome": 0.75}},
+                {"context": "list|unknown", "pages": 40,
+                 "rates": {"native": 0.9, "cffi:chrome": 0.8}},
+            ]}))
+        try:
+            r, data = support.run_json("bandit", "--rates-json", path,
+                                       "--policies", "thompson",
+                                       "--pages", "80", "--json")
+        finally:
+            support.os.unlink(path)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("contexts", data)
+        self.assertEqual(len(data["contexts"]), 2)
+        self.assertEqual(data["rows"][0]["policy"], "thompson")
+
+    def test_rates_json_validation(self):
+        for payload in ({"contexts": []},
+                        {"contexts": [{"context": "", "rates": {"native": 0.5}}]},
+                        {"contexts": [{"context": "a", "rates": {}}]},
+                        {"contexts": [{"context": "a", "rates": {"native": 2}}]}):
+            with self.subTest(payload=payload):
+                path = support.write_temp(json.dumps(payload))
+                try:
+                    r = support.run("bandit", "--rates-json", path,
+                                    "--pages", "10", "--seed", "7")
+                finally:
+                    os.unlink(path)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+
     def test_table_output(self):
         r = support.run("bandit", "--arms", "native=0.2,cffi:chrome=0.9",
                         "--pages", "20", "--seed", "7")

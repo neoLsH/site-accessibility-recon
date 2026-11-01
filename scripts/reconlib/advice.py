@@ -50,6 +50,15 @@ def _routes(rows):
     return [{"route": route, "outcomes": got} for route, got in sorted(out.items())]
 
 
+def _contexts(rows):
+    out = {}
+    for row in rows:
+        ctx = row.get("context")
+        if ctx:
+            out[ctx] = out.get(ctx, 0) + 1
+    return out
+
+
 def _plan(action, layer, countermeasure, why, confidence, commands, stop):
     return {
         "action": action,
@@ -83,6 +92,7 @@ def recommend(rows, evidence_path="<evidence.jsonl>"):
         "outcomes": counts,
         "noise_excluded_n": den,
         "arms": arms,
+        "contexts": _contexts(rows),
     }
     findings = []
 
@@ -199,6 +209,16 @@ def recommend(rows, evidence_path="<evidence.jsonl>"):
         }
 
     # dominant == blocked
+    ctx_ok = {row.get("context") for row in rows
+              if row.get("outcome") == "ok" and row.get("context")}
+    ctx_blocked = {row.get("context") for row in rows
+                   if row.get("outcome") == "blocked" and row.get("context")}
+    split = bool(ctx_ok and ctx_blocked and ctx_ok != ctx_blocked)
+    if split:
+        findings.append({"code": "context-split",
+                         "count": len(ctx_ok | ctx_blocked),
+                         "message": "同一站点在不同上下文里结局不同；换臂前先按上下文分组"})
+
     limited = sum(1 for row in rows if row.get("waf_no") == 6)
     if limited and limited / counts["blocked"] >= 0.5:
         return {
@@ -216,12 +236,16 @@ def recommend(rows, evidence_path="<evidence.jsonl>"):
     blocked_arms = {row.get("arm") for row in rows if row.get("outcome") == "blocked"}
     better = sorted(blocked_arms - ok_arms)
     if ok_arms and better:
+        why = (f"{', '.join(sorted(ok_arms))} 已拿到内容，"
+               f"{', '.join(better)} 被拦；换臂是最便宜的候选")
+        if split:
+            why += "；证据里上下文结局不一致，先按上下文分组再换臂"
         return {
             "evidence": evidence,
             "findings": findings,
             "next": _plan(
                 "switch-arm", "L2", "S2",
-                f"{', '.join(sorted(ok_arms))} 已拿到内容，{', '.join(better)} 被拦；换臂是最便宜的候选",
+                why,
                 "assumed",
                 [f"recon fetch {url} --selector '#content' --rung both",
                  f"recon crawl --from urls.txt --selector '#content' --arms "

@@ -66,6 +66,28 @@ class RecommendTest(unittest.TestCase):
         self.assertEqual(body["evidence"]["routes"], 2)
         self.assertEqual(body["evidence"]["arms"], ["native", "cffi:chrome"])
 
+    def test_contexts_are_summarized(self):
+        body = advice.recommend([
+            {"route": "/a", "outcome": "blocked", "arm": "native",
+             "context": "h|article|challenge"},
+            {"route": "/a", "outcome": "ok", "arm": "cffi:chrome",
+             "context": "h|article|content"},
+        ])
+        self.assertEqual(body["evidence"]["contexts"],
+                         {"h|article|challenge": 1, "h|article|content": 1})
+
+    def test_context_split_finding(self):
+        body = advice.recommend([
+            {"route": "/a", "outcome": "blocked", "arm": "native",
+             "context": "h|article|challenge"},
+            {"route": "/a", "outcome": "ok", "arm": "cffi:chrome",
+             "context": "h|article|content"},
+        ])
+        codes = [f["code"] for f in body["findings"]]
+        self.assertIn("context-split", codes)
+        self.assertEqual(body["next"]["action"], "switch-arm")
+        self.assertIn("上下文分组", body["next"]["why"])
+
     def test_rejects_trial_and_unknown(self):
         with self.assertRaises(ValueError):
             advice.recommend([{"kind": "trial", "trial_outcome": "ok"}])

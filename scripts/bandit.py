@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """bandit.py — 离线推演：给定每臂胜率，比较选臂策略的请求开销与成功率。
 
-不联网、不发请求。胜率来源二选一：
-    --arms   native=0.4,cffi:chrome=0.7
-    --trials crawl 产出的试验行 JSONL（只取可归因、非限频的尝试）
+不联网、不发请求。胜率来源三选一：
+    --arms        native=0.4,cffi:chrome=0.7
+    --trials      crawl 产出的试验行 JSONL（只取可归因、非限频的尝试）
+    --rates-json  按上下文分组的胜率（每组独立选臂、独立更新后验）
 
 推演回答“如果这个胜率成立，thompson / ucb1 / fixed / round_robin 谁更省请求”，
 不替代真实对照：胜率本身仍须来自观测，推演不产生新证据。
@@ -11,6 +12,7 @@
 用法:
     scripts/bandit.py --arms native=0.4,cffi:chrome=0.7 --pages 200 --seed 7
     scripts/bandit.py --trials recon/demo/trials.jsonl --json
+    scripts/bandit.py --rates-json rates.json --pages 200 --json
 
 退出码: 0 成功；2 用法或输入错误
 """
@@ -38,9 +40,55 @@ def parse_policies(text):
     return out
 
 
+def load_contexts(path):
+    """读上下文分组的胜率：{contexts: [{context, pages?, rates}]}。"""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except OSError as e:
+        raise ValueError(f"读上下文胜率失败: {e}")
+    except ValueError as e:
+        raise ValueError(f"上下文胜率不是合法 JSON: {e}")
+    groups = data.get("contexts") if isinstance(data, dict) else None
+    if not isinstance(groups, list) or not groups:
+        raise ValueError("上下文胜率需要非空的 contexts 数组")
+    out = []
+    for item in groups:
+        if not isinstance(item, dict):
+            raise ValueError("contexts 的每一项都必须是对象")
+        ctx = str(item.get("context") or "").strip()
+        if not ctx:
+            raise ValueError("每个上下文组都需要非空 context")
+        raw_rates = item.get("rates")
+        if not isinstance(raw_rates, dict) or not raw_rates:
+            raise ValueError(f"上下文 {ctx} 缺少非空 rates")
+        rates = {}
+        for arm, raw in raw_rates.items():
+            try:
+                rate = float(raw)
+            except (TypeError, ValueError):
+                raise ValueError(f"上下文 {ctx} 的胜率不是数字: {arm}={raw!r}")
+            if not 0.0 <= rate <= 1.0:
+                raise ValueError(f"上下文 {ctx} 的胜率应在 0–1: {arm}={rate}")
+            rates[str(arm)] = rate
+        pages = item.get("pages")
+        if pages is not None:
+            try:
+                pages = int(pages)
+            except (TypeError, ValueError):
+                raise ValueError(f"上下文 {ctx} 的 pages 必须是整数")
+            if pages < 1:
+                raise ValueError(f"上下文 {ctx} 的 pages 必须 >= 1")
+        out.append({"context": ctx, "pages": pages, "rates": rates})
+    return out
+
+
 def rates_from_args(args):
-    if bool(args.arms) == bool(args.trials):
-        raise ValueError("--arms 与 --trials 必须二选一")
+    sources = [bool(args.arms), bool(args.trials), bool(args.rates_json)]
+    if sum(sources) != 1:
+        raise ValueError("--arms / --trials / --rates-json 必须三选一")
+    if args.rates_json:
+        return load_contexts(args.rates_json), "rates-json"
     if args.arms:
         rates = simulate.parse_rates(args.arms)
         for arm in rates:
@@ -61,7 +109,8 @@ def rates_from_args(args):
 def print_table(body):
     rates = body["rates"]
     print(f"胜率来源: {body['source']}，页数 {body['pages']}，seed {body['seed']}")
-    print(" ".join(f"{arm}={rate:.2f}" for arm, rate in rates.items()))
+    if rates:
+        print(" ".join(f"{arm}={rate:.2f}" for arm, rate in rates.items()))
     print()
     header = f"{'policy':<12} {'requests':<9} {'successes':<10} {'access':<8} {'req/success':<12} pulls"
     print(header)
@@ -80,12 +129,22 @@ def print_table(body):
               f"{access:<8} {rps:<12} {pulls}")
     if any(r["policy"] == "best-single" for r in body["rows"]):
         print("\n* best-single 为期望值，不是采样值。")
+    contexts = body.get("contexts") or {}
+    if contexts:
+        print()
+        print(f"按上下文（source={body['source']}）:")
+        for ctx, info in contexts.items():
+            pulls = " ".join(f"{a}={n}" for a, n in info["pulls"].items())
+            wins = " ".join(f"{a}={n}" for a, n in info["wins"].items())
+            print(f"  {ctx:<28} pages={info['pages']:<4} pulls={pulls} wins={wins}")
 
 
 def main():
     ap = argparse.ArgumentParser(description="离线推演选臂策略：请求开销与成功率")
     ap.add_argument("--arms", help="每臂胜率：native=0.4,cffi:chrome=0.7")
     ap.add_argument("--trials", help="从试验行 JSONL 估计胜率（crawl --trial-out 的产物）")
+    ap.add_argument("--rates-json",
+                    help="按上下文分组的胜率 JSON：{\"contexts\": [{context, pages, rates}]}")
     ap.add_argument("--pages", type=int, default=200, help="模拟页数，默认 200")
     ap.add_argument("--policies", default="thompson,ucb1,fixed,round_robin",
                     help="逗号分隔的策略列表")
@@ -102,15 +161,27 @@ def main():
     except ValueError as e:
         ap.error(str(e))
 
-    rows = [simulate.simulate(name, rates, pages=args.pages, seed=args.seed,
-                              min_pulls=args.min_pulls) for name in pump]
-    rows.append(simulate.best_single(rates, pages=args.pages))
+    rows = []
+    contexts = {}
+    if source == "rates-json":
+        rows = [simulate.simulate_contexts(
+                    name, rates, pages=args.pages, seed=args.seed,
+                    min_pulls=args.min_pulls) for name in pump]
+        if rows:
+            contexts = rows[0]["contexts"]
+        body_rates = {}
+    else:
+        rows = [simulate.simulate(name, rates, pages=args.pages, seed=args.seed,
+                                  min_pulls=args.min_pulls) for name in pump]
+        rows.append(simulate.best_single(rates, pages=args.pages))
+        body_rates = rates
 
     body = {
         "command": "bandit",
         "ok": True,
         "source": source,
-        "rates": rates,
+        "rates": body_rates,
+        "contexts": contexts,
         "pages": args.pages,
         "seed": args.seed,
         "min_pulls": args.min_pulls,
