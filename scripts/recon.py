@@ -13,6 +13,7 @@
     recon canary <url> --selector '#content' --passes 5
     recon canary <url> --compare recon/forum/canary.json   # 回归对比
     recon stats recon/forum/evidence.jsonl          # 双指标：按路由拆分
+    recon stats before.jsonl --compare after.jsonl  # 改前改后：差值与区间
     recon fetch <url> --selector '#content'
     recon surface <url>                             # 站点 JS 采集面（静态）
     recon fp collect --via cffi --out chrome.json

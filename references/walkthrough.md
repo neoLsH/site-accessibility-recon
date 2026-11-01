@@ -79,6 +79,51 @@ ALL         8  1      1       6         0.857        0.487-0.974 0.667          
 
 读法：`/article/2` 可访问但只有 1/3 完整，说明需要查抽取或渲染，不是拦截；`/article/3` 的 5xx 已从分母剔除，不冒充“被反爬”。
 
+### 5.1 改前改后
+
+两份示例证据行（`evidence-before.jsonl` / `evidence-after.jsonl`）演示同一批路由的对策前后：
+
+```bash
+recon stats assets/example/evidence-before.jsonl \
+  --compare assets/example/evidence-after.jsonl
+```
+
+```
+== 改前 -> 改后 ==
+
+可访问性成功率
+route       before       after        delta   ci95        status
+ALL         45/60 0.750  54/61 0.885  +0.135  0.000-0.274 inconclusive
+/article/1  20/20 1.000  20/20 1.000  +0.000  -0.161-0.161 inconclusive
+/article/2  18/20 0.900  18/20 0.900  +0.000  -0.214-0.214 inconclusive
+/article/3  6/18  0.333  13/18 0.722  +0.389  0.160-0.714 improved
+/article/4  1/2   0.500  3/3   1.000  +0.500  0.095-1.000 insufficient
+
+内容完整率
+route       before       after        delta   ci95        status
+ALL         36/45 0.800  52/54 0.963  +0.163  0.022-0.290 improved
+/article/1  17/20 0.850  19/20 0.950  +0.100  -0.114-0.310 inconclusive
+/article/2  12/18 0.667  17/18 0.944  +0.278  0.044-0.542 improved
+/article/3  6/6   1.000  13/13 1.000  +0.000  -0.390-0.228 insufficient
+/article/4  1/1   1.000  3/3   1.000  +0.000  -0.793-0.562 insufficient
+
+== 说明 ==
+下限: 每侧分母 >= 10 才给结论；低于此值标 insufficient，区间照给
+区间: Newcombe 95%（两个 Wilson 区间合成）；不含 0 才判 improved / regressed
+注意: /article/3 complete: 分母低于下限 10（改前 6 / 改后 13）
+注意: /article/4 access: 分母低于下限 10（改前 2 / 改后 3）
+注意: /article/4 complete: 分母低于下限 10（改前 1 / 改后 3）
+回归: 无
+```
+
+三处值得对照读：
+
+- ALL 的可访问性 +0.135 但区间起点贴 0，判 `inconclusive`——点估计涨了，还不能说“显著改善”。
+- `/article/3` 可访问性 `improved`，完整率却 `insufficient`（改前分母 6）：一个指标可信不代表另一个也可信。
+- `/article/4` 两边都只有个位数样本，差值再大也不出方向。
+
+只要有任一路由判 `regressed` 即退出 1；`--min-den` 可调下限，但要写进结论，别暗改。
+
 ## 6. 建档与 lint
 
 ```bash
@@ -125,7 +170,7 @@ verdict: deterministic-pass -> deterministic-pass  flip_delta 0.0  median_delta 
 回归: 无
 ```
 
-判定阈值（结论翻转 / 翻转率 +0.2 / 内容中位数 -20% / 噪声占比 +0.2）见 [cli.md](cli.md#概率门与回归基线)。再跑一次 `stats`，用同一批 URL 出改前改后两个指标，才谈得上“有效”。
+判定阈值（结论翻转 / 翻转率 +0.2 / 内容中位数 -20% / 噪声占比 +0.2）见 [cli.md](cli.md#概率门与回归基线)。再用 `stats <改前行> --compare <改后行>` 出双指标差值与 Newcombe 区间（见 [5.1](#51-改前改后)），才算验证过“有效”。
 
 ## 9. 回写与复验
 

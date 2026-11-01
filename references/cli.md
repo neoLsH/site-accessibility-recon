@@ -11,7 +11,7 @@
 | `shape` | `shape.py` | 这一份响应是什么形态 | `--html` `--signals` `--explain` `--save-html` `--min-content` |
 | `matrix` | `client-matrix.sh` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--save-html` `--delay` |
 | `canary` | `canary.py` | 是否概率门；改前改后是否回归 | `--selector` `--passes` `--delay` `--save` `--compare` |
-| `stats` | `stats.py` | 按路由拆分的双指标与区间 | 位置参数：JSONL / canary 基线 JSON |
+| `stats` | `stats.py` | 按路由拆分的双指标、区间与改前改后差值 | `--compare` `--min-den`；位置参数为 JSONL / canary 基线 JSON |
 | `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--no-browser-stack` `--out-dir` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
@@ -22,7 +22,7 @@
 ## 通用约定
 
 - `--json` 只改变输出形态：顶层 `{"command", "ok", ...}`，`ok` 取自退出码，字段名以各脚本为准。
-- 退出码：`0` 成功 / `1` 有结论但结论是“有问题”/ `2` 用法或数据格式错误。`shape` 的 `1` 只表示没拿到响应（`unreachable`），其余形态即使不理想也算成功分类。
+- 退出码：`0` 成功 / `1` 有结论但结论是“有问题”/ `2` 用法或数据格式错误。`shape` 的 `1` 只表示没拿到响应（`unreachable`），其余形态即使不理想也算成功分类；`stats --compare` 的 `1` 表示至少一个指标判为回归。
 - 节流是硬约束：`canary` 上限 10 pass、间隔 ≥2s；`quick`/`matrix`/`fetch` 的 URL 间隔默认 5s。连续探测会触发按出口的频率降权，把限频污染成“指纹被识别”。
 - 记录写 `<项目根>/recon/<代号>/`，见 [site-profile.md](site-profile.md) 与 [assets/workspace/README.md](../assets/workspace/README.md)。
 
@@ -72,6 +72,33 @@ recon canary <url> --selector '#content' --passes 5 --compare recon/<代号>/can
 | 噪声 | 单列 | 5xx 与连接失败不计入可访问性分母 |
 
 区间是 Wilson 95%。样本越小越宽，不要引用单 pass 点估计。
+
+### 改前 / 改后
+
+```bash
+# 位置参数放改前证据行，--compare 放改后
+recon stats recon/<代号>/evidence-before.jsonl --compare recon/<代号>/evidence-after.jsonl
+```
+
+同一路由只比两边都出现的样本；只在一侧出现的路由列进 `only_before` / `only_after`，不参与差值。每个指标给改前、改后、差值 `after − before` 与 Newcombe hybrid score 区间（两个独立比例的差），再按区间落判：
+
+| 状态 | 条件 | 含义 |
+|---|---|---|
+| `improved` | 区间下界 > 0 | 改善，方向与量级都有区间支撑 |
+| `regressed` | 区间上界 < 0 | 回归，退出码 1 |
+| `inconclusive` | 区间跨 0 | 样本量够但还看不出差别 |
+| `insufficient` | 任一侧分母 < `--min-den`（默认 10）或为 0 | 不判方向，`reason` 说明差多少 |
+
+点估计好看不等于改善：区间跨 0 就写“未见显著变化”，别把 +0.13 写成“提升 13 个百分点”。
+
+```json
+{"mode": "compare", "baseline": {...}, "current": {...},
+ "compare": {"min_den": 10, "overall": {"complete": {"delta": 0.163, "ci95": [0.022, 0.29], "status": "improved"}},
+             "routes": [{"route": "/article/1", "access": {...}, "complete": {...}}],
+             "only_before": [], "only_after": [], "regressed_routes": [], "regressed": false}}
+```
+
+单份输入时 `mode` 为 `single`，结构与此前一致。
 
 ## 执行计划
 

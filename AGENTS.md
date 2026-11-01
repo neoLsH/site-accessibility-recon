@@ -65,6 +65,7 @@ scripts/recon.py canary <url> --selector '#content' --passes 5   # 概率门：�
 scripts/recon.py canary <url> --selector '#content' --save baseline.json   # 存基线
 scripts/recon.py canary <url> --selector '#content' --compare baseline.json # 回归对比（阈值见 cli.md）
 scripts/recon.py stats recon/<代号>/evidence.jsonl               # 双指标结算：按路由 + Wilson 区间
+scripts/recon.py stats before.jsonl --compare after.jsonl        # 改前改后：差值与 Newcombe 区间，小样本判 insufficient
 scripts/fingerprint-probe.js                                    # 页面内指纹快照 + CDP 泄漏探针
 scripts/recon.py fp diff a.json b.json                          # 网络指纹快照 + 逐字段 diff
 scripts/recon.py fetch <url> --selector '#content'               # 客户端阶梯取内容 + WAF 归类

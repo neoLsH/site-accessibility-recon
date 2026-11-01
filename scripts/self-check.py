@@ -62,6 +62,8 @@ REQUIRED = [
     "assets/shape-signals.json",
     "assets/example/profile.yaml",
     "assets/example/evidence.jsonl",
+    "assets/example/evidence-before.jsonl",
+    "assets/example/evidence-after.jsonl",
     "assets/example/site/index.html",
     "assets/example/site/article/index.html",
     "assets/example/site/article/1.html",
@@ -556,8 +558,39 @@ def check_stats_smoke():
     want = (8, 6, 7, 4, 6)
     if got != want:
         fail(f"stats 示例口径异常: (n, access_num, access_den, complete_num, complete_den)={got}，应为 {want}")
-    else:
-        ok("stats 可运行，示例口径 6/7 可访问、4/6 完整（噪声单列）")
+        return
+
+    r = subprocess.run(
+        [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "stats",
+         os.path.join(ROOT, "assets/example/evidence-before.jsonl"),
+         "--compare", os.path.join(ROOT, "assets/example/evidence-after.jsonl"),
+         "--json"],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        fail(f"stats --compare 异常 rc={r.returncode}: {(r.stderr or r.stdout).strip()[:200]}")
+        return
+    try:
+        cmp_body = json.loads(r.stdout)
+    except ValueError:
+        fail("stats --compare --json 不是合法 JSON")
+        return
+    if cmp_body.get("mode") != "compare":
+        fail(f"stats --compare 未进入对比模式: mode={cmp_body.get('mode')!r}")
+        return
+    cmp = cmp_body.get("compare") or {}
+    overall = cmp.get("overall") or {}
+    access_status = (overall.get("access") or {}).get("status")
+    complete_status = (overall.get("complete") or {}).get("status")
+    routes = {g.get("route"): g for g in cmp.get("routes") or []}
+    small = (routes.get("/article/4") or {}).get("access", {}).get("status")
+    if (access_status, complete_status, small) != ("inconclusive", "improved", "insufficient") \
+            or cmp.get("regressed") is not False:
+        fail(f"stats --compare 判定异常: overall.access={access_status!r}, "
+             f"overall.complete={complete_status!r}, /article/4.access={small!r}, "
+             f"regressed={cmp.get('regressed')!r}")
+        return
+    ok("stats 可运行，示例口径 6/7 可访问、4/6 完整（噪声单列）")
+    ok("stats --compare 可运行，整体仅完整率改善、小样本判不足、示例无回归")
 
 
 def check_tests():
