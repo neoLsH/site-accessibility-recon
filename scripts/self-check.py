@@ -65,6 +65,7 @@ REQUIRED = [
     "references/crawl.md",
     "references/bandit.md",
     "references/agent.md",
+    "references/forms.md",
     "assets/site-profile.template.yaml",
     "assets/report-template.md",
     "assets/shape-signals.json",

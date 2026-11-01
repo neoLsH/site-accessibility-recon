@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 python3 与 curl；建议另装 curl_cffi 做浏览器级 TLS 指纹仿真。要让脚本真正联网，还需要能出网的出口；断网时自动降级为离线复核（只分析已留存的 HTML 与快照）。
 allowed-tools: Bash, Read, Write, Edit, WebFetch, Task
 metadata:
-  version: 1.12.0
+  version: 1.13.0
   scope: diagnostics
 ---
 
@@ -95,6 +95,7 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 | 扩展脚本、复用量测 / 归类 / 取样能力 | [references/atoms.md](references/atoms.md) |
 | 批量取内容、多臂选臂、控预算与熔断 | [references/crawl.md](references/crawl.md) |
 | 离线推演：换选举策略值不值 | [references/bandit.md](references/bandit.md) |
+| 四种形态怎么分工（Skill / CLI / Agent / LLM） | [references/forms.md](references/forms.md) |
 | 接 Agent / LLM：证据行 → 下一步动作（契约、提示骨架、护栏） | [references/agent.md](references/agent.md) |
 | 第一次跑，想跟着走一遍完整链路 | [references/walkthrough.md](references/walkthrough.md) |
 | 先装环境、知道用哪个工具、别踩版本坑 | [references/toolbox.md](references/toolbox.md) |
