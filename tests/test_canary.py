@@ -77,6 +77,24 @@ class CanaryTest(unittest.TestCase):
         self.assertTrue(data["compare"]["regressed"])
         self.assertTrue(data["compare"]["verdict_changed"])
 
+    def test_arm_is_chosen_once_and_recorded(self):
+        with support.serve({"/ok": lambda h: support.response(h, 200, support.long_html())}) as base:
+            r, data = support.run_json(
+                "canary", base + "/ok", *PASSES, "--arms", "native,cffi:chrome",
+                "--policy", "round_robin", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(data["arm"], "native")
+
+    def test_no_available_arm_is_usage_error(self):
+        cfg = support.write_temp('{"arms": []}')
+        try:
+            r = support.run("canary", "http://127.0.0.1:9/x", *PASSES,
+                            "--arms", "browser:chromium", "--arms-file", cfg)
+        finally:
+            os.unlink(cfg)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("没有可用的客户端臂", r.stderr)
+
     def test_save_and_compare_are_mutually_exclusive(self):
         r = support.run("canary", "http://127.0.0.1:9/x", *PASSES,
                         "--save", support.temp_path(".json"),

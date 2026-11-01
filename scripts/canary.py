@@ -25,11 +25,13 @@ import json
 import os
 import re
 import statistics
-import subprocess
 import sys
-import tempfile
 import time
 from html.parser import HTMLParser
+
+from reconlib import arms as armreg
+from reconlib.policy import ALGORITHMS, Bandit
+from reconlib.session import fetch_observation, host_of
 
 MAX_PASSES = 10
 DELAY = 3
@@ -130,25 +132,15 @@ def selector_text(html, selector):
     return scan.chars if scan.done else 'missing'
 
 
-def fetch(url, timeout, ua):
-    fd, path = tempfile.mkstemp(prefix='canary-', suffix='.html')
-    os.close(fd)
-    try:
-        out = subprocess.run(
-            ['curl', '-sS', '-L', '--max-time', str(timeout), '-A', ua, '-o', path,
-             '-w', '%{http_code}\t%{size_download}\t%{url_effective}\t%{content_type}', url],
-            capture_output=True, text=True)
-        if out.returncode != 0:
-            return '000', 0, url, '', b''
-        code, size, final, ctype = (out.stdout.split('\t') + [''] * 4)[:4]
-        with open(path, 'rb') as f:
-            body = f.read()
-        return code or '000', int(size or 0), final or url, ctype, body
-    finally:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+def choose_arm(args):
+    registry = armreg.load(args.arms_file)
+    names = armreg.parse_list(args.arms, registry, args.impersonate)
+    require = armreg.parse_require(args.require)
+    available, _ = registry.filter(names, require)
+    if not available:
+        raise ValueError('没有可用的客户端臂（检查 --arms / --arms-file / --require）')
+    bandit = Bandit(available, algorithm=args.policy, seed=args.seed, min_pulls=0)
+    return registry, bandit.select(host_of(args.url), available)
 
 
 def outcome(code, content, min_content, markers):
@@ -270,6 +262,14 @@ def main():
     ap.add_argument('--save', help='把本次结论与逐 pass 行写成基线 JSON')
     ap.add_argument('--compare', help='与基线 JSON 对比；有回归时退出码为 1')
     ap.add_argument('--json', action='store_true', help='输出单个 JSON 对象')
+    ap.add_argument('--arms', default='native',
+                    help='逗号分隔的候选臂，默认 native；整个 pass 序列只选一条')
+    ap.add_argument('--policy', choices=ALGORITHMS, default='fixed',
+                    help='选臂策略，默认 fixed')
+    ap.add_argument('--seed', type=int, help='thompson 选臂的随机种子')
+    ap.add_argument('--arms-file', help='外部臂配置 JSON')
+    ap.add_argument('--require', default='', help='硬性能力要求，如 js')
+    ap.add_argument('--impersonate', default='chrome', help='裸 cffi 臂的仿真目标')
     args = ap.parse_args()
 
     if args.save and args.compare:
@@ -282,11 +282,22 @@ def main():
     if args.delay < MIN_DELAY:
         print(f'# 间隔已抬到 {MIN_DELAY}s：连打会触发按 IP 降权', file=sys.stderr)
 
+    try:
+        registry, arm = choose_arm(args)
+    except ValueError as e:
+        ap.error(str(e))
+
     rows = []
     for i in range(args.passes):
         if i:
             time.sleep(delay)
-        code, size, final, ctype, body = fetch(args.url, args.timeout, args.ua)
+        obs = fetch_observation(args.url, registry.get(arm),
+                                timeout=args.timeout, ua=args.ua)
+        code = str(obs.get('status') or '000')
+        body = obs.get('body') or b''
+        size = obs.get('bytes') or len(body)
+        final = obs.get('final_url') or args.url
+        ctype = obs.get('ctype') or ''
         html = body.decode('utf-8', 'replace')
         if args.selector:
             mlen = selector_text(html, args.selector)
@@ -302,11 +313,12 @@ def main():
         rows.append({
             'pass': i + 1, 'http': code, 'bytes': size, 'content': mlen,
             'final_url': final, 'content_type': ctype, 'outcome': oc,
+            'arm': arm,
         })
 
     stats = summarize(rows, args.passes)
     result = {'url': args.url, 'selector': args.selector, 'min_content': args.min_content,
-              'passes': args.passes, 'delay': delay, 'rows': rows, **stats}
+              'passes': args.passes, 'delay': delay, 'arm': arm, 'rows': rows, **stats}
     if args.compare:
         result['compare'] = compare(baseline, result, args.compare)
     if args.save:
@@ -315,6 +327,7 @@ def main():
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
+        print(f'arm: {arm}')
         print('pass\thttp\tbytes\tcontent\toutcome\tfinal_url')
         for r in rows:
             print(f"{r['pass']}\t{r['http']}\t{r['bytes']}\t{r['content']}\t"
