@@ -7,13 +7,13 @@
 | 命令 | 底层脚本 | 回答什么 | 关键选项 |
 |---|---|---|---|
 | `doctor` | `preflight.sh` | 环境缺什么、缺了会降级成什么 | — |
-| `quick` | `quick.py` | 每条 URL 值不值得继续测 | `--from` `--selector` `--min-content` `--delay` `--arms` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--skip-robots` |
+| `quick` | `quick.py` | 每条 URL 值不值得继续测 | `--from` `--selector` `--min-content` `--delay` `--arms` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--skip-robots` `--no-cookies` |
 | `shape` | `shape.py` | 这一份响应是什么形态 | `--html` `--signals` `--explain` `--save-html` `--min-content` |
-| `matrix` | `matrix.py` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--arms` `--stop-on-ok` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--save-html` `--delay` |
+| `matrix` | `matrix.py` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--arms` `--stop-on-ok` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--save-html` `--delay` `--cookies` |
 | `canary` | `canary.py` | 是否概率门；改前改后是否回归 | `--selector` `--passes` `--delay` `--save` `--compare` `--arms` `--policy` `--arms-file` |
 | `stats` | `stats.py` | 按路由拆分的双指标、区间与改前改后差值 | `--compare` `--min-den`；位置参数为 JSONL / canary 基线 JSON |
-| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--out-dir` |
-| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--seed` `--evidence-out` `--trial-out` |
+| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--out-dir` `--no-cookies` |
+| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--policy-in` `--policy-out` `--seed` `--evidence-out` `--trial-out` `--no-cookies` |
 | `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` / `--rates-json` / `--policy-in` `--pages` `--policies` `--seed` |
 | `explore` | `explore.py` | 只读探索规划：后验 → 下一批探测与停止规则 | `--trials` / `--policy-in` `--arms` `--budget` `--max-per-context` `--target-pulls` `--prior-strength` `--half-life` `--cost-weight` `--block-budget` `--seed` |
 | `advise` | `advise.py` | 证据行 → 下一步动作（只读，不执行） | `--route` `--json` |
@@ -133,6 +133,15 @@ recon stats recon/<代号>/evidence-before.jsonl --compare recon/<代号>/eviden
 - 选臂按 `host|路由类|响应类` 累计；`--cost-weight`（默认 0.1，0 关闭）按 5000ms 归一化压低慢臂；`--prior-strength`（默认 4，0 关闭）从相邻上下文借先验，`--half-life`（默认 0）按更新次数遗忘旧样本，`--block-budget`（默认 3，0 关闭）在连续可归因 blocked 后暂停该臂。规则见 [strategy.md](strategy.md)。
 - 度量与归类的口径由 `scripts/reconlib/` 原子层提供，见 [atoms.md](atoms.md)。
 - 外部浏览器内核不在仓库内。把适配器写进仓库外的 `arms.json`，用 `--arms-file` / `RECON_ARMS_FILE` / `~/.config/site-recon/arms.json` 接入；契约与安全边界见 [arms.md](arms.md)。未配置的臂以 `skipped` 出现且不计请求预算。
+
+## 会话状态
+
+HTTP 臂默认保留本轮目标站点下发的会话状态，按 `(臂, host)` 隔离，存临时目录并在命令结束时删除。
+
+- `crawl` / `fetch` / `quick` 默认开启，`--no-cookies` 关闭；`matrix` 默认关闭，`--cookies` 开启；`canary` 不持有会话。
+- 会话值不进证据行、试验行、策略档案与表格输出；不跨进程、不读外部 cookie 或凭证。
+- 怀疑“第一页被拦、第二页通过”来自会话而非客户端栈时，用 `--no-cookies` 复跑做对照。
+- 机制与各能力点默认值见 [sessions.md](sessions.md)。
 
 ## 批量采集
 

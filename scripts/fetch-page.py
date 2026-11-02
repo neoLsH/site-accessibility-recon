@@ -154,6 +154,8 @@ def main():
                     help="按更新次数指数遗忘的半衰期，默认 0（不遗忘）")
     ap.add_argument("--block-budget", type=int, default=3,
                     help="同一路由连续 blocked 几次暂停该臂，默认 3；0 关闭")
+    ap.add_argument("--no-cookies", action="store_true",
+                    help="不保留会话状态（默认按臂+host 复用本轮服务端下发的 cookie）")
     ap.add_argument("--policy-in", help="读取上一轮策略档案（recon-policy/1）")
     ap.add_argument("--policy-out", help="把本轮后验写到该路径，供下一轮热启动")
     ap.add_argument("--timeout", type=int, default=20)
@@ -201,7 +203,7 @@ def main():
         timeout=args.timeout, ua=args.ua, save=save, require=require,
         permission=args.i_have_permission, cost_weight=args.cost_weight,
         prior_strength=args.prior_strength, half_life=args.half_life,
-        block_budget=args.block_budget)
+        block_budget=args.block_budget, cookies=not args.no_cookies)
     if args.policy_in:
         try:
             policy_store.restore(session.bandit, args.policy_in)
@@ -209,12 +211,15 @@ def main():
             ap.error(str(e))
 
     records, any_ok = [], False
-    for i, url in enumerate(urls):
-        if i:
-            time.sleep(args.delay)
-        rec, ok = probe(url, args, registry, arm_list, session)
-        records.append(rec)
-        any_ok = any_ok or ok
+    try:
+        for i, url in enumerate(urls):
+            if i:
+                time.sleep(args.delay)
+            rec, ok = probe(url, args, registry, arm_list, session)
+            records.append(rec)
+            any_ok = any_ok or ok
+    finally:
+        session.close()
 
     if args.policy_out:
         try:

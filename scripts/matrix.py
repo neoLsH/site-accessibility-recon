@@ -168,6 +168,8 @@ def build_parser():
                     help="额外探测出口 TLS 指纹（发送到第三方回显服务）")
     ap.add_argument("--i-have-permission", action="store_true",
                     help="跳过 robots 检查（仅在你已获站点方许可时使用）")
+    ap.add_argument("--cookies", action="store_true",
+                    help="保留本轮服务端下发的会话状态（默认关闭：矩阵要逐臂独立对照）")
     ap.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
     return ap
 
@@ -228,7 +230,8 @@ def main(argv=None):
         delay=args.delay, timeout=args.timeout, ua=args.ua,
         permission=args.i_have_permission, require=require, save=save,
         cost_weight=args.cost_weight, prior_strength=args.prior_strength,
-        half_life=args.half_life, block_budget=args.block_budget)
+        half_life=args.half_life, block_budget=args.block_budget,
+        cookies=args.cookies)
     if args.policy_in:
         try:
             policy_store.restore(session.bandit, args.policy_in)
@@ -237,20 +240,23 @@ def main(argv=None):
 
     rows = []
     halted = None
-    for i in range(1, args.passes + 1):
-        pass_no["value"] = i
-        page = session.probe(
-            args.url, selector=args.selector, min_content=args.min_content,
-            max_attempts=len(arm_list), require=require,
-            permission=args.i_have_permission, warn=warn,
-            stop_on_ok=args.stop_on_ok)
-        rows.extend(_rows_for(page, registry, args.url, args.selector))
-        if page.get("halt"):
-            halted = page["halt"]
-            print(f"# 已停止：{halted}"
-                  f"{(': ' + page['reason']) if page.get('reason') else ''}",
-                  file=sys.stderr)
-            break
+    try:
+        for i in range(1, args.passes + 1):
+            pass_no["value"] = i
+            page = session.probe(
+                args.url, selector=args.selector, min_content=args.min_content,
+                max_attempts=len(arm_list), require=require,
+                permission=args.i_have_permission, warn=warn,
+                stop_on_ok=args.stop_on_ok)
+            rows.extend(_rows_for(page, registry, args.url, args.selector))
+            if page.get("halt"):
+                halted = page["halt"]
+                print(f"# 已停止：{halted}"
+                      f"{(': ' + page['reason']) if page.get('reason') else ''}",
+                      file=sys.stderr)
+                break
+    finally:
+        session.close()
 
     if args.policy_out:
         try:

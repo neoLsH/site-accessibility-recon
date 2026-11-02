@@ -53,7 +53,8 @@ def crawl(urls, args):
         ua=args.ua, max_consecutive_blocked=args.max_consecutive_blocked,
         save=save, require=require, permission=args.i_have_permission,
         cost_weight=args.cost_weight, prior_strength=args.prior_strength,
-        half_life=args.half_life, block_budget=args.block_budget)
+        half_life=args.half_life, block_budget=args.block_budget,
+        cookies=not args.no_cookies)
     policy_in = None
     if args.policy_in:
         policy_in = policy_store.restore(session.bandit, args.policy_in)
@@ -67,25 +68,28 @@ def crawl(urls, args):
             print(f"# 警告：{host} 的 robots.txt 取不到，合规状态未知",
                   file=sys.stderr)
 
-    for url in urls:
-        if len(pages) >= args.max_pages:
-            stopped = f"达到 max-pages={args.max_pages}"
-            break
-        page = session.probe(
-            url, selector=args.selector, min_content=args.min_content,
-            max_attempts=args.max_requests - requests, require=require,
-            permission=args.i_have_permission, warn=warn)
-        requests += page["requests"]
-        pages.append(page)
-        if page["halt"] == "budget":
-            stopped = stopped or f"达到 max-requests={args.max_requests}"
-            break
-        if page["halt"] == "no-arm":
-            stopped = stopped or "没有可用的客户端臂"
-            break
-        if page["halt"] == "circuit-open":
-            stopped = stopped or f"circuit-open: {page.get('reason', '连续 blocked')}"
-            # 熔断只封这个 host：余下 URL 会在 probe 顶部被记为 skipped
+    try:
+        for url in urls:
+            if len(pages) >= args.max_pages:
+                stopped = f"达到 max-pages={args.max_pages}"
+                break
+            page = session.probe(
+                url, selector=args.selector, min_content=args.min_content,
+                max_attempts=args.max_requests - requests, require=require,
+                permission=args.i_have_permission, warn=warn)
+            requests += page["requests"]
+            pages.append(page)
+            if page["halt"] == "budget":
+                stopped = stopped or f"达到 max-requests={args.max_requests}"
+                break
+            if page["halt"] == "no-arm":
+                stopped = stopped or "没有可用的客户端臂"
+                break
+            if page["halt"] == "circuit-open":
+                stopped = stopped or f"circuit-open: {page.get('reason', '连续 blocked')}"
+                # 熔断只封这个 host：余下 URL 会在 probe 顶部被记为 skipped
+    finally:
+        session.close()
 
     ev_rows = [p["evidence"] for p in pages if p["evidence"]]
     trials = session.trials
@@ -177,6 +181,8 @@ def main():
                     help="按更新次数指数遗忘的半衰期，默认 0（不遗忘）")
     ap.add_argument("--block-budget", type=int, default=3,
                     help="同一路由连续 blocked 几次暂停该臂，默认 3；0 关闭")
+    ap.add_argument("--no-cookies", action="store_true",
+                    help="不保留会话状态（默认按臂+host 复用本轮服务端下发的 cookie）")
     ap.add_argument("--policy-in", help="读取上一轮策略档案（recon-policy/1）")
     ap.add_argument("--policy-out", help="把本轮后验写到该路径，供下一轮热启动")
     ap.add_argument("--max-pages", type=int, default=MAX_PAGES,

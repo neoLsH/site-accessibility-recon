@@ -4,6 +4,30 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.19.0] — 2026-11-02
+
+补上同一次运行内的会话连续性：服务端在首跳种下的会话标识，后续页面由同一条臂、同一个 host 沿用，减少把“正常会话”误判成拦截。
+
+### 新增
+
+- `reconlib/cookies.py`：`CookieStore` 按 `(臂, host)` 各存一份会话状态，放在临时目录（`recon-cookies-<随机>`），文件权限 `0600`，`close()` 或对象回收时删除。
+- `native` 臂用 Netscape 格式 jar 配合 `curl -b/-c` 读写；`cffi:<profile>` 臂用 `curl_cffi` 会话对象；外部渲染臂由适配器自理，本层不注入。
+- `ArmSession(cookies=True)` 默认持有会话并传给 HTTP 采样；`fetch_one(..., cookies=store)` 保留原有无状态调用方式。
+- `tests/test_cookies.py`（11 个）：隔离、权限、关闭清理、禁用模式、服务端 cookie 回放、无状态对照、证据行不含会话值、CLI 默认与关闭路径。
+
+### 变更
+
+- `crawl` / `fetch` / `quick` 默认开启会话，`--no-cookies` 关闭；`matrix` 默认关闭，`--cookies` 显式开启（保持逐臂独立对照）；`canary` 不持有会话（基线要可复现）。
+- 会话值不进入证据行、试验行、策略档案与表格输出；不跨进程、不读取外部 cookie 或凭证。
+- 新增 [references/sessions.md](references/sessions.md)；`SKILL.md` 版本升到 1.19.0，`README.md`、`AGENTS.md`、`cli.md`、`crawl.md`、`atoms.md`、`strategy.md` 同步；自检新增会话门禁。
+
+### 已知限制
+
+- 只延续目标站点本轮主动下发的状态；登录、鉴权、挑战仍走业务授权与人工路径，本层不处理。
+- `matrix` 与 `matrix --cookies` 是两种口径，不能把两轮结果直接放进同一张表比较；要看差异需分别跑并在报告中注明。
+- 会话按 `(臂, host)` 隔离，因此同一 host 的多个路由共享状态；需要完全独立对照时用 `--no-cookies`。
+- 它不放宽合规边界：robots、节流、host 级熔断与臂暂停照旧按请求计数执行。
+
 ## [1.18.0] — 2026-11-02
 
 把探索从“敢试”推进到“会收手”：连续可归因 blocked 达到预算即暂停单臂，全暂停时整页 halt，不再为试满而继续撞墙。

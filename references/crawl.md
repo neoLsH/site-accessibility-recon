@@ -36,8 +36,11 @@
 | `--delay` | 5s | 每 host 请求间隔；回环地址自动降为 0 |
 | 连续 blocked | 3 | 触发该 host 熔断，余下同 host URL 记为 `circuit-open` |
 | `--block-budget` | 3 | 同一 `host + 路由类 + 臂` 连续可归因 blocked 后暂停该臂；全暂停记 `all-arms-suspended` |
+| 会话状态 | 开启 | 按 `(臂, host)` 复用本轮服务端下发的状态，临时目录、结束即删；`--no-cookies` 关闭 |
 
 熔断只封当前 host：其他 host 仍可在预算内继续。臂暂停只封一条路由上的一条臂，其他路由仍可用别的臂；`--block-budget 0` 关闭暂停。预算或熔断让运行提前结束时退出码为 1。
+
+默认会保留本轮目标站点下发的会话状态：第一页被拦、同一臂第二页通过时，先用 `--no-cookies` 复跑，确认结论来自客户端栈而不是会话。会话值不进证据行与试验行，机制见 [sessions.md](sessions.md)。
 
 ## 两种行，别混
 

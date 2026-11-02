@@ -7,8 +7,8 @@
 
 from urllib.parse import urlsplit
 
-from . import (UA_DEFAULT, context as ctxmod, evidence, fetch, measure, pacing,
-               render, robots)
+from . import (UA_DEFAULT, context as ctxmod, cookies as cookiemod,
+               evidence, fetch, measure, pacing, render, robots)
 from .classify import classify
 from .policy import ALGORITHMS, ContextualBandit
 
@@ -19,9 +19,10 @@ def host_of(url):
     return urlsplit(url).netloc or url
 
 
-def fetch_observation(url, arm, timeout=20, ua=UA_DEFAULT):
+def fetch_observation(url, arm, timeout=20, ua=UA_DEFAULT, cookies=None):
     if arm.transport in ("native", "cffi"):
-        return fetch.fetch_one(url, arm.name, timeout=timeout, ua=ua)
+        return fetch.fetch_one(url, arm.name, timeout=timeout, ua=ua,
+                               cookies=cookies)
     return render.fetch(url, arm, timeout=timeout, ua=ua)
 
 
@@ -37,7 +38,7 @@ class ArmSession:
                  ua=UA_DEFAULT, max_consecutive_blocked=3, save=None,
                  require=(), permission=False, clock=None, sleep=None,
                  cost_weight=0.1, prior_strength=4.0, half_life=0.0,
-                 block_budget=3):
+                 block_budget=3, cookies=True):
         from . import arms as armreg
         self.registry = registry or armreg.load()
         self.arms = [self.registry.get(name) for name in arm_names]
@@ -63,6 +64,10 @@ class ArmSession:
         self.require = tuple(require)
         self.permission = permission
         self.trials = []
+        self.cookies = cookiemod.CookieStore(enabled=cookies)
+
+    def close(self):
+        self.cookies.close()
 
     def snapshot(self, host):
         return self.bandit.snapshot(host)
@@ -128,7 +133,8 @@ class ArmSession:
                 return page
             arm = self.registry.get(name)
             self.pace.wait(host)
-            obs = fetch_observation(url, arm, timeout=self.timeout, ua=self.ua)
+            obs = fetch_observation(url, arm, timeout=self.timeout, ua=self.ua,
+                                    cookies=self.cookies)
             html = measure.is_html(obs.get("ctype"))
             content = measure.content_len(obs.get("body") or b"",
                                           selector) if html else "-"

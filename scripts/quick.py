@@ -161,6 +161,8 @@ def build_parser():
     ap.add_argument("--ua", default=fetch.UA_DEFAULT, help="统一 User-Agent")
     ap.add_argument("--skip-robots", action="store_true",
                     help="跳过 robots.txt 检查（仅在你已获得明确许可时使用）")
+    ap.add_argument("--no-cookies", action="store_true",
+                    help="不保留会话状态（默认按臂+host 复用本轮服务端下发的 cookie）")
     ap.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
     return ap
 
@@ -205,7 +207,8 @@ def main(argv=None):
         delay=args.delay, timeout=args.timeout, ua=args.ua,
         permission=args.skip_robots, require=require,
         cost_weight=args.cost_weight, prior_strength=args.prior_strength,
-        half_life=args.half_life, block_budget=args.block_budget)
+        half_life=args.half_life, block_budget=args.block_budget,
+        cookies=not args.no_cookies)
     if args.policy_in:
         try:
             policy_store.restore(session.bandit, args.policy_in)
@@ -217,31 +220,34 @@ def main(argv=None):
               file=sys.stderr)
 
     rows, bad = [], 0
-    for url in urls:
-        page = session.probe(
-            url, selector=args.selector, min_content=args.min_content,
-            max_attempts=1, require=require,
-            permission=args.skip_robots, warn=warn, keep_body=True)
-        if page["skipped"] == "robots-deny":
-            row = ("合规禁止", "-", "-", "-", "-", url, "robots.txt 不允许抓取")
-        else:
-            obs = page.get("observation")
-            if obs is None:
-                reason = page.get("reason") or page.get("skipped") or "未发出请求"
-                row = ("待定", "-", "-", "-", "-", url,
-                       f"{page.get('halt') or 'no-attempt'}: {reason}")
+    try:
+        for url in urls:
+            page = session.probe(
+                url, selector=args.selector, min_content=args.min_content,
+                max_attempts=1, require=require,
+                permission=args.skip_robots, warn=warn, keep_body=True)
+            if page["skipped"] == "robots-deny":
+                row = ("合规禁止", "-", "-", "-", "-", url, "robots.txt 不允许抓取")
             else:
-                content = ("-" if not measure.is_html(obs.get("ctype"))
-                           else measure.content_len(obs.get("body") or b"",
-                                                    args.selector))
-                verdict, reason = verdict_of(url, obs, content, args.selector,
-                                             args.min_content)
-                row = (verdict, str(obs.get("status") or "-"),
-                       str(obs.get("bytes") or "-"), str(content),
-                       obs.get("final_url") or url, url, reason)
-        rows.append(row)
-        if row[0] != "可行·HTTP":
-            bad += 1
+                obs = page.get("observation")
+                if obs is None:
+                    reason = page.get("reason") or page.get("skipped") or "未发出请求"
+                    row = ("待定", "-", "-", "-", "-", url,
+                           f"{page.get('halt') or 'no-attempt'}: {reason}")
+                else:
+                    content = ("-" if not measure.is_html(obs.get("ctype"))
+                               else measure.content_len(obs.get("body") or b"",
+                                                        args.selector))
+                    verdict, reason = verdict_of(url, obs, content, args.selector,
+                                                 args.min_content)
+                    row = (verdict, str(obs.get("status") or "-"),
+                           str(obs.get("bytes") or "-"), str(content),
+                           obs.get("final_url") or url, url, reason)
+            rows.append(row)
+            if row[0] != "可行·HTTP":
+                bad += 1
+    finally:
+        session.close()
 
     if args.policy_out:
         try:

@@ -16,6 +16,7 @@ import re
 import subprocess
 import tempfile
 import time
+from urllib.parse import urlsplit
 
 from . import UA_DEFAULT
 
@@ -46,7 +47,7 @@ def display_arm(arm):
     return "curl(native)" if kind == "native" else f"curl_cffi({profile})"
 
 
-def run_curl(url, ua=UA_DEFAULT, timeout=20, headers=()):
+def run_curl(url, ua=UA_DEFAULT, timeout=20, headers=(), cookie_file=None):
     started = time.monotonic()
 
     def elapsed():
@@ -58,6 +59,8 @@ def run_curl(url, ua=UA_DEFAULT, timeout=20, headers=()):
         cmd = ["curl", "-sS", "-L", "--max-time", str(timeout), "-A", ua,
                "-o", body_path, "-D", hdr_path,
                "-w", "%{http_code}\t%{size_download}\t%{url_effective}\t%{content_type}"]
+        if cookie_file:
+            cmd += ["-b", cookie_file, "-c", cookie_file]
         for h in headers:
             cmd += ["-H", h]
         cmd.append(url)
@@ -85,7 +88,7 @@ def run_curl(url, ua=UA_DEFAULT, timeout=20, headers=()):
                             body=payload, elapsed_ms=elapsed())
 
 
-def run_cffi(url, ua=UA_DEFAULT, impersonate="chrome", timeout=20):
+def run_cffi(url, ua=UA_DEFAULT, impersonate="chrome", timeout=20, session=None):
     arm = f"cffi:{impersonate}"
     started = time.monotonic()
 
@@ -96,9 +99,10 @@ def run_cffi(url, ua=UA_DEFAULT, impersonate="chrome", timeout=20):
         from curl_cffi import requests as creq
     except ImportError:
         return _observation(arm, error="未安装 curl_cffi", skipped=True, elapsed_ms=elapsed())
+    getter = session if session is not None else creq
     try:
-        r = creq.get(url, impersonate=impersonate, timeout=timeout,
-                     headers={"user-agent": ua}, allow_redirects=True)
+        r = getter.get(url, impersonate=impersonate, timeout=timeout,
+                       headers={"user-agent": ua}, allow_redirects=True)
     except Exception as e:  # 网络层失败也要记录，不能静默
         return _observation(arm, error=f"{type(e).__name__}: {e}", elapsed_ms=elapsed())
     return _observation(
@@ -108,11 +112,16 @@ def run_cffi(url, ua=UA_DEFAULT, impersonate="chrome", timeout=20):
         body=r.content, elapsed_ms=elapsed())
 
 
-def fetch_one(url, arm, timeout=20, ua=UA_DEFAULT, headers=()):
+def fetch_one(url, arm, timeout=20, ua=UA_DEFAULT, headers=(), cookies=None):
     kind, profile = parse_arm(arm)
+    host = urlsplit(url).netloc or url
     if kind == "native":
-        return run_curl(url, ua=ua, timeout=timeout, headers=headers)
-    return run_cffi(url, ua=ua, impersonate=profile, timeout=timeout)
+        jar = cookies.curl_jar(arm, host) if cookies is not None else None
+        return run_curl(url, ua=ua, timeout=timeout, headers=headers,
+                        cookie_file=jar)
+    session = cookies.cffi_session(arm, host) if cookies is not None else None
+    return run_cffi(url, ua=ua, impersonate=profile, timeout=timeout,
+                    session=session)
 
 
 def save_html(out_dir, url, tag, body):

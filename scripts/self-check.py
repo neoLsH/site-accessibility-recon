@@ -27,7 +27,8 @@
  23. 策略记忆：分层先验 / 遗忘 / 诊断 / 档案往返，四个采集入口与 bandit 全部接入
  24. 探索规划：explore 只读、预算封顶、同输入可复现，且 recon 入口已接入
  25. 安全探索：连续 blocked 暂停单臂、全暂停返回 halt、fixed 不受影响，CLI 已接入
- 26. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 26. 会话状态：按臂/按 host 隔离、0600、关闭即清，采集入口默认开启而 canary 不持有
+ 27. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -69,6 +70,7 @@ REQUIRED = [
     "references/atoms.md",
     "references/arms.md",
     "references/strategy.md",
+    "references/sessions.md",
     "references/crawl.md",
     "references/bandit.md",
     "references/agent.md",
@@ -116,6 +118,7 @@ REQUIRED = [
     "scripts/reconlib/arms.py",
     "scripts/reconlib/render.py",
     "scripts/reconlib/session.py",
+    "scripts/reconlib/cookies.py",
     "scripts/js-surface.py",
     "scripts/shape.py",
     "scripts/canary.py",
@@ -143,6 +146,7 @@ REQUIRED = [
     "tests/test_policy_prior.py",
     "tests/test_policy_store.py",
     "tests/test_policy_safety.py",
+    "tests/test_cookies.py",
     "tests/test_quick.py",
     "tests/test_matrix.py",
     "tests/test_explore.py",
@@ -928,6 +932,67 @@ assert body["block_budget"] == 2, body["block_budget"]
     ok("安全探索：连续 blocked 暂停单臂、全暂停返回 halt、fixed 不受影响，CLI 已接入")
 
 
+def check_cookie_sessions():
+    """会话状态只在临时目录：按 (臂, host) 隔离、0600、关闭即清，且不写进证据。"""
+    code = """
+import os
+import stat
+import sys
+sys.path.insert(0, "scripts")
+from reconlib import cookies
+
+store = cookies.CookieStore()
+try:
+    a = store.curl_jar("native", "a.example")
+    b = store.curl_jar("cffi:chrome", "a.example")
+    c = store.curl_jar("native", "b.example")
+    assert len({a, b, c}) == 3, "会话未按 (臂, host) 隔离"
+    assert stat.S_IMODE(os.stat(a).st_mode) == 0o600, "会话文件权限不是 0600"
+    assert os.path.commonpath([a, b, c, store.root]) == store.root, "会话文件应在临时目录"
+    assert store.curl_jar("native", "a.example") == a, "同键应复用同一会话文件"
+    root = store.root
+finally:
+    store.close()
+assert not os.path.exists(root), "close 后临时目录仍在"
+
+off = cookies.CookieStore(enabled=False)
+assert off.curl_jar("native", "a.example") is None
+assert off.cffi_session("cffi:chrome", "a.example") is None
+assert off.root is None
+off.close()
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("会话隔离契约异常: " + " | ".join(tail))
+        return
+
+    for p in ("scripts/crawl.py", "scripts/fetch-page.py", "scripts/quick.py"):
+        if "--no-cookies" not in read(p):
+            fail(f"{p} 缺少 --no-cookies")
+            return
+    if '"--cookies"' not in read("scripts/matrix.py"):
+        fail("matrix 缺少显式 opt-in 的 --cookies")
+        return
+    if "cookies=" in read("scripts/canary.py"):
+        fail("canary 应保持无会话（基线要可复现）")
+        return
+
+    session = read("scripts/reconlib/session.py")
+    for needle in ("CookieStore(enabled=cookies)", "cookies=self.cookies",
+                   "def close"):
+        if needle not in session:
+            fail(f"session 缺少会话接入: {needle}")
+            return
+    fetch_src = read("scripts/reconlib/fetch.py")
+    for needle in ('"-b", cookie_file', "session=session"):
+        if needle not in fetch_src:
+            fail(f"fetch 缺少会话接入: {needle}")
+            return
+    ok("会话状态：按臂/按 host 隔离、0600、关闭即清；采集默认开启，matrix 显式 opt-in，canary 无会话")
+
+
 def check_explore_planner():
     """探索规划是只读层：不发请求、预算封顶、同输入可复现。"""
     code = """
@@ -1223,6 +1288,7 @@ def main():
     check_strategy_context()
     check_policy_memory()
     check_safe_exploration()
+    check_cookie_sessions()
     check_explore_planner()
     check_crawl_guard()
     check_bandit_smoke()
