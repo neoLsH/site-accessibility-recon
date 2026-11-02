@@ -160,6 +160,10 @@ def build_parser():
                     help="指数遗忘半衰期（样本数），默认 0 = 不遗忘")
     ap.add_argument("--block-budget", type=int, default=3,
                     help="同一路由连续 blocked 几次暂停该臂，默认 3；0 关闭；fixed 模式不生效")
+    ap.add_argument("--rate-limit-budget", type=int, default=2,
+                    help="同一 host 连续几次限频进入冷却，默认 2；0 关闭（与策略无关）")
+    ap.add_argument("--rate-limit-cooldown", type=float, default=30.0,
+                    help="限频冷却时长（秒），默认 30；Retry-After 更长时取更长者")
     ap.add_argument("--policy-in", help="热启动：读取策略档案（recon-policy/1）")
     ap.add_argument("--policy-out", help="本轮结束后把策略后验写到该路径")
     ap.add_argument("--timeout", type=int, default=20, help="单请求超时，默认 20s")
@@ -206,6 +210,10 @@ def main(argv=None):
         ap.error("--half-life 不能为负")
     if args.block_budget < 0:
         ap.error("--block-budget 不能为负")
+    if args.rate_limit_budget < 0:
+        ap.error("--rate-limit-budget 不能为负")
+    if args.rate_limit_cooldown < 0:
+        ap.error("--rate-limit-cooldown 不能为负")
 
     registry, arm_list = _arm_list(args, ap)
     try:
@@ -231,7 +239,8 @@ def main(argv=None):
         permission=args.i_have_permission, require=require, save=save,
         cost_weight=args.cost_weight, prior_strength=args.prior_strength,
         half_life=args.half_life, block_budget=args.block_budget,
-        cookies=args.cookies)
+        cookies=args.cookies, rate_limit_budget=args.rate_limit_budget,
+        rate_limit_cooldown=args.rate_limit_cooldown)
     if args.policy_in:
         try:
             policy_store.restore(session.bandit, args.policy_in)

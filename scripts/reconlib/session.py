@@ -38,7 +38,9 @@ class ArmSession:
                  ua=UA_DEFAULT, max_consecutive_blocked=3, save=None,
                  require=(), permission=False, clock=None, sleep=None,
                  cost_weight=0.1, prior_strength=4.0, half_life=0.0,
-                 block_budget=3, cookies=True):
+                 block_budget=3, cookies=True,
+                 rate_limit_budget=pacing.DEFAULT_RATE_LIMIT_BUDGET,
+                 rate_limit_cooldown=pacing.DEFAULT_RATE_LIMIT_COOLDOWN):
         from . import arms as armreg
         self.registry = registry or armreg.load()
         self.arms = [self.registry.get(name) for name in arm_names]
@@ -52,7 +54,9 @@ class ArmSession:
             prior_strength=prior_strength, half_life=half_life,
             block_budget=block_budget)
         kw = {"delay": delay,
-              "max_consecutive_blocked": max_consecutive_blocked}
+              "max_consecutive_blocked": max_consecutive_blocked,
+              "rate_limit_budget": rate_limit_budget,
+              "rate_limit_cooldown": rate_limit_cooldown}
         if clock is not None:
             kw["clock"] = clock
         if sleep is not None:
@@ -84,6 +88,16 @@ class ArmSession:
                 "stopped": None, "skipped": None, "halt": None,
                 "requests": 0, "robots": "skipped" if permission else None,
                 "last": None, "context": ctx, "contexts": []}
+        cooling = self.pace.cooldown_left(host)
+        if cooling > 0:
+            # 冷却期连 robots.txt 都不取：这一台 host 本轮不再产生任何请求
+            page["skipped"] = f"rate-limit-cooldown: {cooling:.0f}s"
+            page["stopped"] = "rate-limit-cooldown"
+            page["halt"] = "rate-limit-cooldown"
+            page["reason"] = (f"{host} 连续限频进入冷却，剩余 {cooling:.0f}s；"
+                              "先降速或静置，换客户端臂无解")
+            page["cooldown_left"] = round(cooling, 1)
+            return page
         if not permission:
             allowed = robots.decision(url, timeout=self.timeout, ua=self.ua)
             page["robots"] = allowed

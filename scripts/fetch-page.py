@@ -81,6 +81,14 @@ def probe(url, args, registry, arm_list, session):
         record["evidence"] = ["robots.txt 不允许抓取"]
         return record, False
 
+    if page["halt"] == "rate-limit-cooldown":
+        record["robots"] = "未取"
+        record["verdict"] = "限频冷却"
+        record["evidence"] = [
+            f"rate-limit-cooldown: 剩余 {page.get('cooldown_left', 0):.0f}s；"
+            "降速或静置后再取，换客户端臂无解"]
+        return record, False
+
     if page["evidence"]:
         if page["evidence"]["outcome"] == "ok":
             record["verdict"] = "已拿到内容"
@@ -154,6 +162,10 @@ def main():
                     help="按更新次数指数遗忘的半衰期，默认 0（不遗忘）")
     ap.add_argument("--block-budget", type=int, default=3,
                     help="同一路由连续 blocked 几次暂停该臂，默认 3；0 关闭")
+    ap.add_argument("--rate-limit-budget", type=int, default=2,
+                    help="同一 host 连续几次限频进入冷却，默认 2；0 关闭")
+    ap.add_argument("--rate-limit-cooldown", type=float, default=30.0,
+                    help="限频冷却时长（秒），默认 30；Retry-After 更长时取更长者")
     ap.add_argument("--no-cookies", action="store_true",
                     help="不保留会话状态（默认按臂+host 复用本轮服务端下发的 cookie）")
     ap.add_argument("--policy-in", help="读取上一轮策略档案（recon-policy/1）")
@@ -188,6 +200,10 @@ def main():
         ap.error("--half-life 不能为负")
     if args.block_budget < 0:
         ap.error("--block-budget 不能为负")
+    if args.rate_limit_budget < 0:
+        ap.error("--rate-limit-budget 不能为负")
+    if args.rate_limit_cooldown < 0:
+        ap.error("--rate-limit-cooldown 不能为负")
 
     try:
         registry = armreg.load(args.arms_file)
@@ -203,7 +219,9 @@ def main():
         timeout=args.timeout, ua=args.ua, save=save, require=require,
         permission=args.i_have_permission, cost_weight=args.cost_weight,
         prior_strength=args.prior_strength, half_life=args.half_life,
-        block_budget=args.block_budget, cookies=not args.no_cookies)
+        block_budget=args.block_budget, cookies=not args.no_cookies,
+        rate_limit_budget=args.rate_limit_budget,
+        rate_limit_cooldown=args.rate_limit_cooldown)
     if args.policy_in:
         try:
             policy_store.restore(session.bandit, args.policy_in)

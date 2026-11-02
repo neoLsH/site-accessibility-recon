@@ -68,6 +68,18 @@ host|article|challenge → host|article|* → host|*|* → *
 
 调法：站点拦截稳定、想更快收手时降到 `1`–`2`；需要更多探索样本（例如新臂上线验证）时调高，或设 `0` 关闭。它和 `crawl` 的 host 级熔断是两层：熔断停整个 host，暂停只停一条臂的一条路由。
 
+## 限频联合决策：host 冷却
+
+限频（429 / `Retry-After`）不是“这条臂不行”，换栈只会更快撞同一扇门。`--rate-limit-budget N`（默认 `2`，`0` 关闭）把连续限频变成 **host 级联合决策**：
+
+- 连续计数只看限频样本：任意非限频结局（`ok` / `degraded` / 普通 `blocked` / `noise` / `auth` / `missing`）都会把 streak 清零。
+- 达到预算后，该 host 进入冷却：时长取 `--rate-limit-cooldown`（默认 `30s`）与 `Retry-After` 的**较长者**，冷却期内 `session` 在发请求前直接跳过，连 robots.txt 都不取。
+- 跳过的页记 `skipped: rate-limit-cooldown: Ns`、`halt: rate-limit-cooldown`、`requests: 0`；`crawl` 继续处理其他 host，但这轮退出码为 `1`。
+- 限频样本**永远不进选臂胜负**：`policy.update_from_outcome(..., rate_limited=True)` 直接返回，后验、成本与暂停 streak 都不动。它约束的是节奏，不是臂的优劣。
+- 冷却状态只在内存里，与策略档案无关；`crawl` 摘要给出 `rate_limited_pages` / `cooldown_pages` / `rate_limit_budget`，`fetch` 把该页判为“限频冷却”，`quick` 判为“待定”，`matrix` 立即 halted。
+
+调法：站点有明确 `Retry-After` 时保持默认即可（会自动取更长者）；连续被限频且没有头提示时，把 cooldown 调到与站点窗口一致（常见 30–120s）。冷却期间**不要**换臂重试——那不是探索，是加深限频。
+
 ## 会话状态与选臂
 
 会话状态与选臂正交：它改变的是**同一条臂连续访问时的输入**，不是胜率本身。

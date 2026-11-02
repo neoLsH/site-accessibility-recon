@@ -4,6 +4,29 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.20.0] — 2026-11-02
+
+把限频从“只推迟下一次请求”升级为策略与节流的联合决策：连续限频不再只是换得更慢，而是让整个 host 进入冷却，并且限频样本永远不参与选臂胜负。
+
+### 新增
+
+- `Pacing(rate_limit_budget=2, rate_limit_cooldown=30.0)`：按 host 维护连续限频 `rate_limit_streak` 与累计 `rate_limit_total`；达预算后写入 `cooldown_until`，时长取 `rate_limit_cooldown` 与 `Retry-After` 的较长者。`cooldown_left(host)` 给出剩余秒数，`wait()` 也会尊重冷却。
+- `ArmSession` 在发请求前（含 robots.txt）检查冷却；命中时返回 `skipped: rate-limit-cooldown: Ns`、`halt: rate-limit-cooldown`、`requests: 0` 的页面，不产生任何网络请求。
+- `crawl` 摘要新增 `rate_limited_pages` / `cooldown_pages` / `rate_limit_budget` / `rate_limit_cooldown`，冷却让运行时退出码为 `1`，但不阻断其他 host；`fetch` 新增“限频冷却”判定，`quick` 记为“待定”，`matrix` 立即 halted。
+- `tests/test_rate_limit.py`（10 个）：预算触发 / 不触发、时钟到期、按 host 隔离、限频不进选臂 pulls、crawl / fetch / quick / matrix 的 CLI 行为。
+
+### 变更
+
+- 连续限频计数只由限频样本增加；任意非限频结局清零。`rate_limit_budget=0` 关闭冷却但仍累计计数。
+- 冷却只约束本轮请求节奏：不写进 `recon-policy/1`，下一轮重新计数；不改变 robots、预算与熔断。
+- `crawl` / `fetch` / `quick` / `matrix` 新增 `--rate-limit-budget` 与 `--rate-limit-cooldown`；`strategy.md` 增加“限频联合决策”，`crawl.md`、`cli.md`、`atoms.md`、`README.md`、`AGENTS.md` 同步；`SKILL.md` 版本升到 1.20.0；自检新增限频门禁。
+
+### 已知限制
+
+- 冷却粒度是 host，不区分路由；同一 host 的其他路由同样暂停。
+- 没有 `Retry-After` 时依赖默认冷却时长；站点窗口更长时应手动调高 `--rate-limit-cooldown`。
+- 冷却不替代业务授权：登录 / 鉴权 / 挑战仍按原路径处理，不对限频做绕过或出口轮换。
+
 ## [1.19.0] — 2026-11-02
 
 补上同一次运行内的会话连续性：服务端在首跳种下的会话标识，后续页面由同一条臂、同一个 host 沿用，减少把“正常会话”误判成拦截。

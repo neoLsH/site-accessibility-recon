@@ -28,7 +28,8 @@
  24. 探索规划：explore 只读、预算封顶、同输入可复现，且 recon 入口已接入
  25. 安全探索：连续 blocked 暂停单臂、全暂停返回 halt、fixed 不受影响，CLI 已接入
  26. 会话状态：按臂/按 host 隔离、0600、关闭即清，采集入口默认开启而 canary 不持有
- 27. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 27. 限频联合决策：连续限频进入 host 冷却、冷却期不发请求、限频样本不进选臂统计
+ 28. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -147,6 +148,7 @@ REQUIRED = [
     "tests/test_policy_store.py",
     "tests/test_policy_safety.py",
     "tests/test_cookies.py",
+    "tests/test_rate_limit.py",
     "tests/test_quick.py",
     "tests/test_matrix.py",
     "tests/test_explore.py",
@@ -993,6 +995,86 @@ off.close()
     ok("会话状态：按臂/按 host 隔离、0600、关闭即清；采集默认开启，matrix 显式 opt-in，canary 无会话")
 
 
+def check_rate_limit_guard():
+    """限频是 host 级联合决策：连续超预算就冷却整台 host，且不进选臂胜负。"""
+    code = """
+import sys
+sys.path.insert(0, "scripts")
+from reconlib import pacing, policy
+
+class Clock:
+    t = 0.0
+    def now(self):
+        return self.t
+    def sleep(self, seconds):
+        self.t += seconds
+
+c = Clock()
+p = pacing.Pacing(delay=0, rate_limit_budget=2, rate_limit_cooldown=30,
+                  clock=c.now, sleep=c.sleep)
+assert p.cooldown_left("h") == 0
+p.observe("h", "blocked", rate_limited=True, retry_after=5)
+assert p.cooldown_left("h") == 0, "未达预算不应冷却"
+state = p.observe("h", "blocked", rate_limited=True, retry_after=5)
+assert p.cooldown_left("h") == 30, p.cooldown_left("h")
+assert state["rate_limit_streak"] == 2 and state["rate_limit_total"] == 2, state
+c.t += 31
+assert p.cooldown_left("h") == 0, "冷却应按时钟到期"
+
+longer = pacing.Pacing(delay=0, rate_limit_budget=1, rate_limit_cooldown=10,
+                       clock=c.now, sleep=c.sleep)
+assert longer.observe("h", "blocked", rate_limited=True,
+                      retry_after=45)["cooldown"] == 45
+
+off = pacing.Pacing(delay=0, rate_limit_budget=0, rate_limit_cooldown=30,
+                    max_consecutive_blocked=99, clock=c.now, sleep=c.sleep)
+for _ in range(5):
+    state = off.observe("h2", "blocked", rate_limited=True)
+assert state["rate_limit_total"] == 5 and off.cooldown_left("h2") == 0
+
+b = policy.ContextualBandit(["native"], algorithm="thompson", seed=1)
+assert b.update_from_outcome("h", "article|challenge", "native", "blocked",
+                             rate_limited=True) is False
+assert b.snapshot("h")["arms"][0]["pulls"] == 0, "限频样本不应更新后验"
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("限频冷却契约异常: " + " | ".join(tail))
+        return
+
+    for p in ("scripts/crawl.py", "scripts/fetch-page.py", "scripts/quick.py",
+              "scripts/matrix.py"):
+        body = read(p)
+        for flag in ("--rate-limit-budget", "--rate-limit-cooldown"):
+            if flag not in body:
+                fail(f"{p} 缺少 {flag}")
+                return
+    crawl = read("scripts/crawl.py")
+    for needle in ("cooldown_pages", "rate_limited_pages"):
+        if needle not in crawl:
+            fail(f"crawl 汇总缺少 {needle}")
+            return
+
+    session = read("scripts/reconlib/session.py")
+    if "rate-limit-cooldown" not in session or "cooldown_left" not in session:
+        fail("session 未接入限频冷却")
+        return
+    cool_at = session.find("self.pace.cooldown_left(host)")
+    robots_at = session.find("if not permission:")
+    if cool_at < 0 or robots_at < 0 or cool_at > robots_at:
+        fail("session 应在取 robots.txt 之前检查冷却（冷却期不发任何请求）")
+        return
+    pacing_src = read("scripts/reconlib/pacing.py")
+    for needle in ("DEFAULT_RATE_LIMIT_BUDGET", "DEFAULT_RATE_LIMIT_COOLDOWN",
+                   "def cooldown_left"):
+        if needle not in pacing_src:
+            fail(f"pacing 缺少限频接入: {needle}")
+            return
+    ok("限频联合决策：超预算冷却 host、冷却期零请求、限频不进选臂统计，四入口已接入")
+
+
 def check_explore_planner():
     """探索规划是只读层：不发请求、预算封顶、同输入可复现。"""
     code = """
@@ -1289,6 +1371,7 @@ def main():
     check_policy_memory()
     check_safe_exploration()
     check_cookie_sessions()
+    check_rate_limit_guard()
     check_explore_planner()
     check_crawl_guard()
     check_bandit_smoke()

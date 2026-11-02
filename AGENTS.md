@@ -35,6 +35,8 @@
 
 选臂只在合规客户端栈之间做，按 `host|路由类|响应类` 分上下文累计胜率；默认用 `--prior-strength 4` 从相邻上下文借先验，`--half-life 0` 不遗忘；`quick` 每条 URL 只发一个请求、跨 URL 学习，`matrix` 默认穷举，`canary` 固定一条臂。`--block-budget 3` 让连续可归因 blocked 暂停单臂，全暂停记 `all-arms-suspended`；`fixed` / `round_robin` 不受裁剪，暂停只在内存里。`--policy-out` / `--policy-in` 让后验跨轮复用（`recon-policy/1`）。规则见 [strategy.md](references/strategy.md)。
 
+限频是 host 级联合决策：`--rate-limit-budget`（默认 2）与 `--rate-limit-cooldown`（默认 30s）让同一 host 连续 429 / `Retry-After` 后进入冷却，冷却期零请求（含 robots.txt），时长取参数与 `Retry-After` 的较长者；限频样本不更新选臂后验，冷却只约束节奏、不跨轮持久化。规则见 [strategy.md](references/strategy.md)。
+
 会话状态只在同一次运行内、按 `(臂, host)` 隔离，存临时目录且命令结束即删；`crawl` / `fetch` / `quick` 默认开启（`--no-cookies` 关闭），`matrix` 默认关闭（`--cookies` 开启），`canary` 不持有。会话值不进证据行与策略档案，也不跨进程复用。规则见 [sessions.md](references/sessions.md)。
 
 ## 按需读取
@@ -49,7 +51,7 @@
 - 全部命令、选项、判据、退出码与基线阈值：[references/cli.md](references/cli.md)
 - 原子层（量测 / 归类 / robots / 取样 / 节奏 / 证据 / 选举）与扩展方式：[references/atoms.md](references/atoms.md)
 - 客户端臂注册表、外部内核契约与能力过滤：[references/arms.md](references/arms.md)
-- 选臂上下文、奖励与成本、安全探索与暂停、各能力点的选臂语义：[references/strategy.md](references/strategy.md)
+- 选臂上下文、奖励与成本、安全探索与暂停、限频冷却、各能力点的选臂语义：[references/strategy.md](references/strategy.md)
 - 会话状态（按臂 / host 隔离、生命周期、各能力点默认值）：[references/sessions.md](references/sessions.md)
 - 批量采集（多臂选举 / 预算护栏 / 证据行与试验行）：[references/crawl.md](references/crawl.md)
 - 离线推演（给定胜率比较选举策略）：[references/bandit.md](references/bandit.md)

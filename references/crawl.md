@@ -20,7 +20,7 @@
 | `ok` | 记成功（1.0） | 重置退避 | 该页结束 |
 | `degraded` | 记半个奖励（0.5） | 重置退避 | 试下一臂 |
 | `blocked`（可归因） | 记失败 | 连续计数 +1，可能熔断 | 试下一臂 |
-| `blocked` + 限频 | 不更新 | 按 `Retry-After` 或指数退避 | 该页结束，**不自动重试** |
+| `blocked` + 限频 | 不更新 | 按 `Retry-After` 或指数退避；连续超预算则 host 冷却 | 该页结束，**不自动重试** |
 | `auth` / `missing` | 不更新 | 重置 | 该页结束 |
 | `noise`（5xx / 链路） | 不更新 | 指数退避 | 该页结束 |
 | `blocked`（不可归因，未归类） | 不更新 | 计数 +1 | 该页结束 |
@@ -35,10 +35,12 @@
 | `--max-requests` | 150 | 不含 robots 的请求上限 |
 | `--delay` | 5s | 每 host 请求间隔；回环地址自动降为 0 |
 | 连续 blocked | 3 | 触发该 host 熔断，余下同 host URL 记为 `circuit-open` |
+| `--rate-limit-budget` | 2 | 同一 host 连续限频达到预算即冷却；`0` 关闭 |
+| `--rate-limit-cooldown` | 30s | 冷却时长，取它与 `Retry-After` 的较长者；冷却期该 host 零请求 |
 | `--block-budget` | 3 | 同一 `host + 路由类 + 臂` 连续可归因 blocked 后暂停该臂；全暂停记 `all-arms-suspended` |
 | 会话状态 | 开启 | 按 `(臂, host)` 复用本轮服务端下发的状态，临时目录、结束即删；`--no-cookies` 关闭 |
 
-熔断只封当前 host：其他 host 仍可在预算内继续。臂暂停只封一条路由上的一条臂，其他路由仍可用别的臂；`--block-budget 0` 关闭暂停。预算或熔断让运行提前结束时退出码为 1。
+熔断只封当前 host：其他 host 仍可在预算内继续。臂暂停只封一条路由上的一条臂，其他路由仍可用别的臂；`--block-budget 0` 关闭暂停。限频冷却同样只封当前 host，冷却期连 robots.txt 都不取，被跳过的页记 `rate-limit-cooldown` 且 `requests: 0`；限频样本不更新选臂后验。预算、熔断或冷却让运行提前结束时退出码为 1。
 
 默认会保留本轮目标站点下发的会话状态：第一页被拦、同一臂第二页通过时，先用 `--no-cookies` 复跑，确认结论来自客户端栈而不是会话。会话值不进证据行与试验行，机制见 [sessions.md](sessions.md)。
 

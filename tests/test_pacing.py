@@ -72,6 +72,65 @@ class PacingTest(unittest.TestCase):
         self.assertEqual(p.observe("h", "blocked", rate_limited=True,
                                    retry_after=999)["backoff"], 30)
 
+    def test_rate_limit_budget_opens_host_cooldown(self):
+        p, _ = make(rate_limit_budget=1, rate_limit_cooldown=30)
+        state = p.observe("h", "blocked", rate_limited=True, retry_after=10)
+        self.assertEqual(state["rate_limit_streak"], 1)
+        self.assertEqual(state["rate_limit_total"], 1)
+        self.assertEqual(state["cooldown"], 30)
+        self.assertAlmostEqual(p.cooldown_left("h"), 30)
+
+    def test_cooldown_prefers_longer_retry_after(self):
+        p, _ = make(rate_limit_budget=1, rate_limit_cooldown=10)
+        state = p.observe("h", "blocked", rate_limited=True, retry_after=45)
+        self.assertEqual(state["cooldown"], 45)
+
+    def test_default_budget_needs_two_rate_limits(self):
+        p, c = make(rate_limit_cooldown=30)
+        first = p.observe("h", "blocked", rate_limited=True, retry_after=5)
+        self.assertEqual(first["cooldown"], 0)
+        c.t += 1
+        second = p.observe("h", "blocked", rate_limited=True, retry_after=5)
+        self.assertEqual(second["rate_limit_streak"], 2)
+        self.assertGreater(second["cooldown"], 0)
+
+    def test_budget_zero_disables_cooldown_but_counts(self):
+        p, _ = make(rate_limit_budget=0, rate_limit_cooldown=30,
+                    max_consecutive_blocked=99)
+        for _ in range(5):
+            state = p.observe("h", "blocked", rate_limited=True)
+        self.assertEqual(state["rate_limit_total"], 5)
+        self.assertEqual(state["cooldown"], 0)
+        self.assertEqual(p.cooldown_left("h"), 0)
+
+    def test_non_rate_limit_outcome_resets_streak(self):
+        p, _ = make(rate_limit_budget=2, rate_limit_cooldown=30)
+        p.observe("h", "blocked", rate_limited=True)
+        p.observe("h", "noise")
+        state = p.observe("h", "blocked", rate_limited=True)
+        self.assertEqual(state["rate_limit_streak"], 1)
+        self.assertEqual(state["cooldown"], 0)
+
+    def test_wait_honors_cooldown(self):
+        p, c = make(delay=5, rate_limit_budget=1, rate_limit_cooldown=30)
+        p.wait("h")
+        p.observe("h", "blocked", rate_limited=True, retry_after=30)
+        self.assertAlmostEqual(p.wait("h"), 30)
+        self.assertAlmostEqual(c.slept[0], 30)
+        self.assertEqual(p.cooldown_left("h"), 0)
+
+    def test_cooldown_is_per_host(self):
+        p, _ = make(rate_limit_budget=1, rate_limit_cooldown=30)
+        p.observe("a.example", "blocked", rate_limited=True)
+        self.assertGreater(p.cooldown_left("a.example"), 0)
+        self.assertEqual(p.cooldown_left("b.example"), 0)
+
+    def test_cooldown_expires_with_clock(self):
+        p, c = make(rate_limit_budget=1, rate_limit_cooldown=30)
+        p.observe("h", "blocked", rate_limited=True)
+        c.t += 31
+        self.assertEqual(p.cooldown_left("h"), 0)
+
     def test_default_delay_for_loopback(self):
         self.assertEqual(default_delay("127.0.0.1"), 0)
         self.assertEqual(default_delay("localhost"), 0)

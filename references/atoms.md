@@ -19,7 +19,7 @@
 | `cookies` | 本轮会话状态怎么隔离、什么时候回收 | `CookieStore.curl_jar` · `cffi_session` · `close` | 建临时目录与 `0600` 文件，退出即删 |
 | `arms` | 这条臂是什么、现在可用吗 | `load` · `parse_list` · `parse_require` · `Registry.filter` | 读仓库外 JSON |
 | `render` | 外部内核怎么取一次 | `fetch(url, arm, timeout)` | 调外部 `cmd` / `http` 适配器 |
-| `pacing` | 现在能不能发、下次等多久、何时熔断 | `Pacing.wait/observe` · `retry_after` · `default_delay` | 只睡，不发请求 |
+| `pacing` | 现在能不能发、下次等多久、何时冷却 / 熔断 | `Pacing.wait/observe/cooldown_left` · `retry_after` · `default_delay` | 只睡，不发请求 |
 | `evidence` | 这页记成什么行 | `evidence_row` · `trial_row` · `write_jsonl` | 写文件（调用方给路径） |
 | `context` | 这次响应属于哪类页面 | `route_class` · `response_class` · `key` · `fallbacks` | 无 |
 | `policy` | 下一步该用哪条臂；连续 blocked 是否暂停 | `Bandit` / `ContextualBandit.select/update/snapshot/suspended_arms` | 无（内存态） |
@@ -30,7 +30,7 @@
 
 `measure` 只量选择器命中的容器，并跳过 `script` / `style`；整页字节会把导航和页脚算进来，是最常见的指标虚高来源。`content_len` 的返回可能是数字，也可能是 `missing` / `?unsupported` / `-`，调用方不要假定一定是整数。
 
-`context` 只从 URL 路径与首次结局取键（`host|路由类|响应类`），不读站点常量；它只决定“选臂读哪份统计”，不改写结局。`pacing` 的时钟与 sleep 可注入，测试不真的等待；`policy` 的随机种子可复现；它的暂停表只存在内存里（`block_budget` 默认 `3`，`0` 关闭），`select` 在候选臂全暂停时返回 `None`，快照记 `halt`，不会写进策略档案。这些都不联网，可单测。`policy_store` 只做原子写与结构校验，不联网、不选臂；档案里只有计数，`context_rates` 把它转成 `--rates-json` 同构的输入。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。`explore` 只消费试验行或策略档案，把后验转成带预算的探测计划，不联网、不发请求；规划顺序见 [explore.md](explore.md)。`advice` 只消费证据行，输出动作与停止条件，不执行命令；契约见 [agent.md](agent.md)。`cookies` 只按 `(臂, host)` 分配本轮会话文件或会话对象，存临时目录、`0600`、`close()` 即删；它不解析、不返回 cookie 内容，也不写入证据行或策略档案，机制见 [sessions.md](sessions.md)。
+`context` 只从 URL 路径与首次结局取键（`host|路由类|响应类`），不读站点常量；它只决定“选臂读哪份统计”，不改写结局。`pacing` 的时钟与 sleep 可注入，测试不真的等待；连续限频达 `rate_limit_budget` 后由 `observe` 写入 host 冷却，`cooldown_left` 供编排层在发请求前检查，冷却时长取 `Retry-After` 与 `rate_limit_cooldown` 的较长者；`policy` 的随机种子可复现；它的暂停表只存在内存里（`block_budget` 默认 `3`，`0` 关闭），`select` 在候选臂全暂停时返回 `None`，快照记 `halt`，不会写进策略档案。这些都不联网，可单测。`policy_store` 只做原子写与结构校验，不联网、不选臂；档案里只有计数，`context_rates` 把它转成 `--rates-json` 同构的输入。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。`explore` 只消费试验行或策略档案，把后验转成带预算的探测计划，不联网、不发请求；规划顺序见 [explore.md](explore.md)。`advice` 只消费证据行，输出动作与停止条件，不执行命令；契约见 [agent.md](agent.md)。`cookies` 只按 `(臂, host)` 分配本轮会话文件或会话对象，存临时目录、`0600`、`close()` 即删；它不解析、不返回 cookie 内容，也不写入证据行或策略档案，机制见 [sessions.md](sessions.md)。
 
 ## 观测与归类契约
 

@@ -9,7 +9,8 @@
 
 护栏（默认值写在模块顶部，自检会校验）：
     max-pages 50、max-requests 150、每 host 间隔 5s、连续 blocked 3 次熔断。
-    429 / 5xx 只推迟下一次请求，不自动重试同一 URL。
+    连续 2 次限频进入 host 冷却 30s（或 Retry-After，取较长者），冷却期内该
+    host 不再发请求；限频样本不更新选臂后验。
 
 产物：
     --evidence-out 证据行 JSONL（outcome 口径，可直接喂 stats）
@@ -37,6 +38,8 @@ MAX_REQUESTS = 150
 MAX_CONSECUTIVE_BLOCKED = 3
 DEFAULT_DELAY = 5.0
 DEFAULT_ARMS = "native,cffi:chrome"
+DEFAULT_RATE_LIMIT_BUDGET = 2
+DEFAULT_RATE_LIMIT_COOLDOWN = 30.0
 
 def crawl(urls, args):
     from reconlib import arms as armreg
@@ -54,7 +57,9 @@ def crawl(urls, args):
         save=save, require=require, permission=args.i_have_permission,
         cost_weight=args.cost_weight, prior_strength=args.prior_strength,
         half_life=args.half_life, block_budget=args.block_budget,
-        cookies=not args.no_cookies)
+        cookies=not args.no_cookies,
+        rate_limit_budget=args.rate_limit_budget,
+        rate_limit_cooldown=args.rate_limit_cooldown)
     policy_in = None
     if args.policy_in:
         policy_in = policy_store.restore(session.bandit, args.policy_in)
@@ -88,6 +93,10 @@ def crawl(urls, args):
             if page["halt"] == "circuit-open":
                 stopped = stopped or f"circuit-open: {page.get('reason', '连续 blocked')}"
                 # 熔断只封这个 host：余下 URL 会在 probe 顶部被记为 skipped
+            if page["halt"] == "rate-limit-cooldown":
+                stopped = stopped or (f"rate-limit-cooldown: 剩余 "
+                                      f"{page.get('cooldown_left', 0):.0f}s")
+                # 冷却同样只封这个 host；其他 host 照常探测
     finally:
         session.close()
 
@@ -112,10 +121,16 @@ def crawl(urls, args):
                             if str(p.get("skipped", "")).startswith("circuit-open")),
         "suspended_pages": sum(1 for p in pages
                                if p.get("halt") == "all-arms-suspended"),
+        "cooldown_pages": sum(1 for p in pages
+                              if p.get("halt") == "rate-limit-cooldown"),
+        "rate_limited_pages": sum(
+            1 for p in pages if any(t.get("rate_limited") for t in p["tries"])),
         "outcomes": outcomes,
         "stopped": stopped,
         "policy": args.policy,
         "block_budget": args.block_budget,
+        "rate_limit_budget": args.rate_limit_budget,
+        "rate_limit_cooldown": args.rate_limit_cooldown,
         "arms": arm_list,
         "seed": args.seed,
         "policy_in": policy_in,
@@ -149,6 +164,9 @@ def print_table(result, args):
     if summary.get("suspended_pages"):
         print(f"暂停页: {summary['suspended_pages']}（该路由候选臂连续 blocked，"
               f"本轮已暂停）")
+    if summary.get("cooldown_pages"):
+        print(f"冷却页: {summary['cooldown_pages']}（{summary['rate_limited_pages']} "
+              f"页出现限频，host 冷却 {summary['rate_limit_cooldown']:.0f}s 内不再请求）")
     if args.evidence_out:
         print(f"证据行 -> {args.evidence_out}")
     if args.trial_out:
@@ -181,6 +199,12 @@ def main():
                     help="按更新次数指数遗忘的半衰期，默认 0（不遗忘）")
     ap.add_argument("--block-budget", type=int, default=3,
                     help="同一路由连续 blocked 几次暂停该臂，默认 3；0 关闭")
+    ap.add_argument("--rate-limit-budget", type=int,
+                    default=DEFAULT_RATE_LIMIT_BUDGET,
+                    help="同一 host 连续几次限频进入冷却，默认 2；0 关闭")
+    ap.add_argument("--rate-limit-cooldown", type=float,
+                    default=DEFAULT_RATE_LIMIT_COOLDOWN,
+                    help="限频冷却时长（秒），默认 30；Retry-After 更长时取更长者")
     ap.add_argument("--no-cookies", action="store_true",
                     help="不保留会话状态（默认按臂+host 复用本轮服务端下发的 cookie）")
     ap.add_argument("--policy-in", help="读取上一轮策略档案（recon-policy/1）")
@@ -216,6 +240,10 @@ def main():
         ap.error("--half-life 不能为负")
     if args.block_budget < 0:
         ap.error("--block-budget 不能为负")
+    if args.rate_limit_budget < 0:
+        ap.error("--rate-limit-budget 不能为负")
+    if args.rate_limit_cooldown < 0:
+        ap.error("--rate-limit-cooldown 不能为负")
     from reconlib import arms as armreg
     try:
         registry = armreg.load(args.arms_file)
