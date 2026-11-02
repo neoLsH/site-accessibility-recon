@@ -39,8 +39,11 @@
 | `--rate-limit-cooldown` | 30s | 冷却时长，取它与 `Retry-After` 的较长者；冷却期该 host 零请求 |
 | `--block-budget` | 3 | 同一 `host + 路由类 + 臂` 连续可归因 blocked 后暂停该臂；全暂停记 `all-arms-suspended` |
 | 会话状态 | 开启 | 按 `(臂, host)` 复用本轮服务端下发的状态，临时目录、结束即删；`--no-cookies` 关闭 |
+| `--plan` | 无 | 按 `explore --plan-out` 的计划执行：只发计划内 `(host + 路由类, 臂)` 配额内的请求，计划外 / 用尽零请求 |
 
 熔断只封当前 host：其他 host 仍可在预算内继续。臂暂停只封一条路由上的一条臂，其他路由仍可用别的臂；`--block-budget 0` 关闭暂停。限频冷却同样只封当前 host，冷却期连 robots.txt 都不取，被跳过的页记 `rate-limit-cooldown` 且 `requests: 0`；限频样本不更新选臂后验。预算、熔断或冷却让运行提前结束时退出码为 1。
+
+带 `--plan` 时，配额按 `host + 路由类` 聚合（同一路由的不同响应类共享额度），只允许计划内的臂；计划外或额度用尽的路由一个请求都不发（连 robots.txt 都不取），页面记 `plan-exhausted`，摘要给出 `plan` 与 `plan_exhausted_pages`。计划不强制某次请求用哪条臂，选臂仍在额度内按策略决定；`--max-requests`、robots、节流、熔断与限频冷却全部照旧。计划里的臂与 `--arms` 无交集时 stderr 会警告。
 
 默认会保留本轮目标站点下发的会话状态：第一页被拦、同一臂第二页通过时，先用 `--no-cookies` 复跑，确认结论来自客户端栈而不是会话。会话值不进证据行与试验行，机制见 [sessions.md](sessions.md)。
 
@@ -93,10 +96,15 @@ recon bandit --trials recon/demo/trials.jsonl --pages 200
 推演只回答“换策略值不值”，不产生新证据；偏差与读法见 [bandit.md](bandit.md)。要决定下一批请求花在哪，用只读规划器：
 
 ```bash
-recon explore --trials recon/demo/trials.jsonl --budget 30 --json
+recon explore --trials recon/demo/trials.jsonl --budget 30 \
+    --plan-out recon/demo/plan.json
+
+# 严格按计划发请求
+recon crawl --from urls-b.txt --selector '#content' \
+    --plan recon/demo/plan.json --trial-out recon/demo/trials2.jsonl
 ```
 
-它按上下文列出未见臂、补样本与探索动作，并给出停止规则；真正发请求仍回到 `crawl`，见 [explore.md](explore.md)。要按上下文分开推演，把各组胜率写进 `--rates-json`，格式见 [strategy.md](strategy.md)。
+它按上下文列出未见臂、补样本与探索动作，并给出停止规则；`--plan-out` 的产物交给 `crawl --plan` 就按配额执行，见 [explore.md](explore.md)。要按上下文分开推演，把各组胜率写进 `--rates-json`，格式见 [strategy.md](strategy.md)。
 
 ## 边界
 

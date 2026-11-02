@@ -24,6 +24,76 @@ from .simulate import ATTRIBUTABLE_TRIAL
 SCHEMA = "recon-explore/1"
 
 
+class Quota:
+    """把探索计划的 steps 压成 (host, 路由类, 臂) 的请求配额。
+
+    只做计数与扣减：不联网、不改计划、不发请求。响应类在请求前未知，因此
+    同一 (host, 路由类) 下不同响应类的 steps 合并计数；执行时只要该路由类
+    还有额度就会发出请求，具体走哪条臂仍由选臂策略在额度内决定。
+    """
+
+    def __init__(self, body):
+        if not isinstance(body, dict):
+            raise ValueError("计划必须是 JSON 对象")
+        if body.get("schema") not in (None, SCHEMA):
+            raise ValueError(f"计划 schema 不是 {SCHEMA}")
+        steps = body.get("steps")
+        if not isinstance(steps, list):
+            raise ValueError("计划缺少 steps 数组")
+        self._left = {}
+        self._planned = 0
+        self._used = 0
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            context = str(step.get("context") or "")
+            arm = str(step.get("arm") or "")
+            try:
+                requests = int(step.get("requests") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not arm or requests <= 0 or context.count("|") < 2:
+                continue
+            host, route, _ = context.split("|", 2)
+            if not host or not route:
+                continue
+            key = (host, route, arm)
+            self._left[key] = self._left.get(key, 0) + requests
+            self._planned += requests
+
+    @property
+    def planned(self):
+        return self._planned
+
+    def arms(self, host, route):
+        """该路由还有剩余额度的臂；空集表示计划不给这条路由发请求。"""
+        return {arm for (h, r, arm), n in self._left.items()
+                if h == host and r == route and n > 0}
+
+    def left(self, host, route, arm):
+        return max(0, self._left.get((host, route, arm), 0))
+
+    def consume(self, host, route, arm):
+        """扣一次额度；已经用完时返回 False，不会扣成负数。"""
+        key = (host, route, arm)
+        if self._left.get(key, 0) <= 0:
+            return False
+        self._left[key] -= 1
+        self._used += 1
+        return True
+
+    def all_arms(self):
+        return {arm for (_, _, arm), n in self._left.items() if n > 0}
+
+    def snapshot(self):
+        return {
+            "planned": self._planned,
+            "used": self._used,
+            "remaining": self._planned - self._used,
+            "routes": len({(h, r) for (h, r, _) in self._left}),
+        }
+
+
 def parse_arms(spec):
     """解析逗号分隔的臂名；explore 只收臂名，不收胜率。"""
     names = []

@@ -37,6 +37,8 @@
 
 限频是 host 级联合决策：`--rate-limit-budget`（默认 2）与 `--rate-limit-cooldown`（默认 30s）让同一 host 连续 429 / `Retry-After` 后进入冷却，冷却期零请求（含 robots.txt），时长取参数与 `Retry-After` 的较长者；限频样本不更新选臂后验，冷却只约束节奏、不跨轮持久化。规则见 [strategy.md](references/strategy.md)。
 
+探索计划可执行：`explore --plan-out` 写出的计划交给 `crawl --plan`，配额按 `host + 路由类` 聚合、只允许计划内的臂，计划外或额度用尽的路由零请求（含 robots.txt），记 `plan-exhausted`；选臂仍在额度内按策略决定。规则见 [explore.md](references/explore.md)。
+
 会话状态只在同一次运行内、按 `(臂, host)` 隔离，存临时目录且命令结束即删；`crawl` / `fetch` / `quick` 默认开启（`--no-cookies` 关闭），`matrix` 默认关闭（`--cookies` 开启），`canary` 不持有。会话值不进证据行与策略档案，也不跨进程复用。规则见 [sessions.md](references/sessions.md)。
 
 ## 按需读取
@@ -55,7 +57,7 @@
 - 会话状态（按臂 / host 隔离、生命周期、各能力点默认值）：[references/sessions.md](references/sessions.md)
 - 批量采集（多臂选举 / 预算护栏 / 证据行与试验行）：[references/crawl.md](references/crawl.md)
 - 离线推演（给定胜率比较选举策略）：[references/bandit.md](references/bandit.md)
-- 探索规划（后验 → 下一批探测预算）：[references/explore.md](references/explore.md)
+- 探索规划（后验 → 下一批探测预算）与按配额执行（`crawl --plan`）：[references/explore.md](references/explore.md)
 - Agent / LLM 接口（`advise/1` 契约、动作优先级、提示骨架与护栏）：[references/agent.md](references/agent.md)
 - 四种形态（Skill / CLI / Agent / LLM）的分工、共享契约与扩展方式：[references/forms.md](references/forms.md)
 - 端到端走查（本地示例站，不碰真实目标）：[references/walkthrough.md](references/walkthrough.md)

@@ -16,6 +16,10 @@
     --evidence-out 证据行 JSONL（outcome 口径，可直接喂 stats）
     --trial-out    试验行 JSONL（kind: trial，带 trial_outcome，stats 会拒绝）
 
+计划：
+    --plan 读取 explore --plan-out 的配额，只发计划内 (host + 路由类, 臂) 的请求；
+    计划外或额度用尽的路由零请求（含 robots.txt），页面记 plan-exhausted。
+
 边界：臂只能是已有客户端协议栈；不做验证码求解、不轮换出口、不伪造挑战 cookie。
 
 用法:
@@ -30,7 +34,7 @@ import argparse
 import json
 import os
 import sys
-from reconlib import evidence, fetch, policy_store
+from reconlib import evidence, explore, fetch, policy_store
 from reconlib.policy import ALGORITHMS
 
 MAX_PAGES = 50
@@ -59,7 +63,8 @@ def crawl(urls, args):
         half_life=args.half_life, block_budget=args.block_budget,
         cookies=not args.no_cookies,
         rate_limit_budget=args.rate_limit_budget,
-        rate_limit_cooldown=args.rate_limit_cooldown)
+        rate_limit_cooldown=args.rate_limit_cooldown,
+        plan=args.plan_quota)
     policy_in = None
     if args.policy_in:
         policy_in = policy_store.restore(session.bandit, args.policy_in)
@@ -125,6 +130,9 @@ def crawl(urls, args):
                               if p.get("halt") == "rate-limit-cooldown"),
         "rate_limited_pages": sum(
             1 for p in pages if any(t.get("rate_limited") for t in p["tries"])),
+        "plan_exhausted_pages": sum(1 for p in pages
+                                    if p.get("stopped") == "plan-exhausted"),
+        "plan": args.plan_quota.snapshot() if args.plan_quota else None,
         "outcomes": outcomes,
         "stopped": stopped,
         "policy": args.policy,
@@ -135,6 +143,7 @@ def crawl(urls, args):
         "seed": args.seed,
         "policy_in": policy_in,
         "policy_out": None,
+        "plan_path": args.plan,
         "hosts": [session.snapshot(h) for h in hosts],
     }
     if args.policy_out:
@@ -167,6 +176,10 @@ def print_table(result, args):
     if summary.get("cooldown_pages"):
         print(f"冷却页: {summary['cooldown_pages']}（{summary['rate_limited_pages']} "
               f"页出现限频，host 冷却 {summary['rate_limit_cooldown']:.0f}s 内不再请求）")
+    plan = summary.get("plan")
+    if plan:
+        print(f"计划: 用 {plan['used']}/{plan['planned']} 请求，剩余 "
+              f"{plan['remaining']}，计划外/额度用尽 {summary['plan_exhausted_pages']} 页")
     if args.evidence_out:
         print(f"证据行 -> {args.evidence_out}")
     if args.trial_out:
@@ -209,6 +222,9 @@ def main():
                     help="不保留会话状态（默认按臂+host 复用本轮服务端下发的 cookie）")
     ap.add_argument("--policy-in", help="读取上一轮策略档案（recon-policy/1）")
     ap.add_argument("--policy-out", help="把本轮后验写到该路径，供下一轮热启动")
+    ap.add_argument("--plan",
+                    help="按探索计划执行（recon explore --plan-out 的产物）："
+                         "只发计划内的请求，计划外路由零请求")
     ap.add_argument("--max-pages", type=int, default=MAX_PAGES,
                     help=f"最多处理多少 URL，默认 {MAX_PAGES}")
     ap.add_argument("--max-requests", type=int, default=MAX_REQUESTS,
@@ -251,6 +267,21 @@ def main():
         armreg.parse_require(args.require)
     except ValueError as e:
         ap.error(str(e))
+
+    args.plan_quota = None
+    if args.plan:
+        try:
+            with open(args.plan, encoding="utf-8") as f:
+                body = json.load(f)
+            args.plan_quota = explore.Quota(body)
+        except OSError:
+            sys.exit(f"找不到计划文件: {args.plan}")
+        except ValueError as e:
+            ap.error(f"计划不可用: {e}")
+        if args.plan_quota.planned and not (
+                args.plan_quota.all_arms() & set(args.arm_list)):
+            print("# 警告：计划里的臂与 --arms 无交集，所有路由都会 plan-exhausted",
+                  file=sys.stderr)
 
     urls = list(args.urls)
     if args.from_file:

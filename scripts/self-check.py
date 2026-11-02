@@ -29,7 +29,8 @@
  25. 安全探索：连续 blocked 暂停单臂、全暂停返回 halt、fixed 不受影响，CLI 已接入
  26. 会话状态：按臂/按 host 隔离、0600、关闭即清，采集入口默认开启而 canary 不持有
  27. 限频联合决策：连续限频进入 host 冷却、冷却期不发请求、限频样本不进选臂统计
- 28. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 28. 计划执行：探索计划按 host+路由类配额执行，计划外路由零请求
+ 29. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -149,6 +150,7 @@ REQUIRED = [
     "tests/test_policy_safety.py",
     "tests/test_cookies.py",
     "tests/test_rate_limit.py",
+    "tests/test_plan_exec.py",
     "tests/test_quick.py",
     "tests/test_matrix.py",
     "tests/test_explore.py",
@@ -1075,6 +1077,66 @@ assert b.snapshot("h")["arms"][0]["pulls"] == 0, "限频样本不应更新后验
     ok("限频联合决策：超预算冷却 host、冷却期零请求、限频不进选臂统计，四入口已接入")
 
 
+def check_plan_execution():
+    """探索计划可执行：配额按 host + 路由类聚合、计划外零请求。"""
+    code = """
+import sys
+sys.path.insert(0, "scripts")
+from reconlib import explore
+
+body = {"schema": "recon-explore/1", "steps": [
+    {"context": "h|article|challenge", "arm": "native", "requests": 2},
+    {"context": "h|article|content", "arm": "native", "requests": 1},
+    {"context": "h|list|content", "arm": "cffi:chrome", "requests": 3},
+    {"context": "bad-context", "arm": "native", "requests": 9},
+    {"context": "h|article|content", "arm": "", "requests": 9},
+]}
+q = explore.Quota(body)
+assert q.planned == 6, q.planned
+assert q.arms("h", "article") == {"native"}, q.arms("h", "article")
+assert q.left("h", "article", "native") == 3
+assert q.arms("h", "api") == set(), "计划外路由不应有额度"
+assert q.consume("h", "article", "native") is True
+assert q.consume("h", "article", "cffi:chrome") is False
+assert q.snapshot() == {"planned": 6, "used": 1, "remaining": 5, "routes": 2}, q.snapshot()
+for bad in ([], {}, {"schema": "recon-policy/1", "steps": []},
+            {"schema": "recon-explore/1"}):
+    try:
+        explore.Quota(bad)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"应拒绝非法计划: {bad!r}")
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("计划配额契约异常: " + " | ".join(tail))
+        return
+
+    crawl = read("scripts/crawl.py")
+    for needle in ("--plan", "plan=args.plan_quota", "plan_exhausted_pages",
+                   "explore.Quota"):
+        if needle not in crawl:
+            fail(f"crawl 缺少计划执行接入: {needle}")
+            return
+    explore_cli = read("scripts/explore.py")
+    if "--plan-out" not in explore_cli:
+        fail("explore 缺少 --plan-out")
+        return
+    session = read("scripts/reconlib/session.py")
+    if "plan-exhausted" not in session or "self.plan.consume" not in session:
+        fail("session 未接入探索计划配额")
+        return
+    plan_at = session.find("self.plan.arms(host, route)")
+    robots_at = session.find("if not permission:")
+    if plan_at < 0 or robots_at < 0 or plan_at > robots_at:
+        fail("session 应在取 robots.txt 之前检查计划额度（计划外路由零请求）")
+        return
+    ok("计划执行：配额按 host+路由类聚合、计划外/用尽零请求，explore 与 crawl 已闭环")
+
+
 def check_explore_planner():
     """探索规划是只读层：不发请求、预算封顶、同输入可复现。"""
     code = """
@@ -1372,6 +1434,7 @@ def main():
     check_safe_exploration()
     check_cookie_sessions()
     check_rate_limit_guard()
+    check_plan_execution()
     check_explore_planner()
     check_crawl_guard()
     check_bandit_smoke()

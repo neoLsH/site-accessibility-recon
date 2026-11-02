@@ -4,6 +4,30 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.21.0] — 2026-11-02
+
+把探索计划从“建议”变成“可执行配额”：`explore` 产出的计划交给 `crawl --plan` 严格执行，计划外路由一个请求都不发，后验 → 计划 → 执行 → 新后验形成闭环。
+
+### 新增
+
+- `reconlib/explore.py` 的 `Quota`：把计划 `steps` 压成 `(host, 路由类, 臂)` 请求配额，提供 `arms` / `left` / `consume` / `all_arms` / `snapshot`；响应类在请求前未知，同一路由的不同响应类合并计数。
+- `explore --plan-out PATH`：把计划写成 JSON（`recon-explore/1`），`--json` 输出带 `plan_out`。
+- `crawl --plan PATH`：按配额执行。计划外或额度用尽的路由零请求（连 robots.txt 都不取），页面记 `plan-exhausted`；只允许计划内的臂，选臂仍在额度内按策略决定。
+- `crawl` 摘要新增 `plan`（`planned` / `used` / `remaining` / `routes`）、`plan_exhausted_pages`、`plan_path`；计划里的臂与 `--arms` 无交集时 stderr 警告。
+- `ArmSession(plan=...)`：在 robots 之前检查计划，执行中按剩余额度过滤候选臂，每次真实尝试扣一次额度。
+- `tests/test_plan_exec.py`（10 个）：配额聚合 / 拒绝非法计划 / 消费不越界、计划内额度用尽零请求、计划外路由零请求（含 robots）、计划臂与候选不交集、crawl 计划执行与坏计划退出码、`--plan-out` 往返。
+
+### 变更
+
+- 新增自检“计划执行”门禁；`SKILL.md` 版本升到 1.21.0，`README.md`、`AGENTS.md`、`strategy.md`、`explore.md`、`crawl.md`、`cli.md`、`atoms.md` 同步。
+
+### 已知限制
+
+- 配额只按请求数计，不含耗时、robots 请求与页面权重；`--max-requests` 仍是独立的全局上限。
+- 同一 `host + 路由类` 下不同响应类共享额度，计划为某响应类预留的额度可能被该路由其他页面先用掉。
+- 计划只限制候选集合与请求次数，不强制某次请求必须用哪条臂；页面数少于计划时额度会剩下。
+- 它不放宽合规边界：robots、节流、熔断与限频冷却照旧按请求计数执行。
+
 ## [1.20.0] — 2026-11-02
 
 把限频从“只推迟下一次请求”升级为策略与节流的联合决策：连续限频不再只是换得更慢，而是让整个 host 进入冷却，并且限频样本永远不参与选臂胜负。

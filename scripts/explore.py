@@ -11,13 +11,15 @@ exploit 的上下文（不再花请求）。每条动作带请求数与理由，
 用法:
     scripts/explore.py --trials recon/demo/trials.jsonl --budget 30 --json
     scripts/explore.py --policy-in recon/demo/policy.json --arms native,cffi:chrome
-    scripts/explore.py --trials trials.jsonl --arms native,cffi:chrome --budget 20
+    scripts/explore.py --trials trials.jsonl --plan-out recon/demo/plan.json
+    scripts/crawl.py --from urls.txt --plan recon/demo/plan.json
 
 退出码: 0 成功；2 用法或输入错误
 """
 
 import argparse
 import json
+import os
 import sys
 
 from reconlib import evidence, explore, policy_store
@@ -85,6 +87,8 @@ def main():
     ap.add_argument("--block-budget", type=int, default=3,
                     help="同一路由连续 blocked 几次暂停该臂，默认 3；0 关闭")
     ap.add_argument("--seed", type=int, default=7, help="诊断采样种子，默认 7")
+    ap.add_argument("--plan-out",
+                    help="把计划写成 JSON，供 crawl --plan 直接按配额执行")
     ap.add_argument("--json", action="store_true", help="输出 JSON")
     args = ap.parse_args()
 
@@ -143,10 +147,19 @@ def main():
         ap.error(str(e))
 
     result.update({"command": "explore", "ok": True})
+    if args.plan_out:
+        try:
+            with open(args.plan_out, "w", encoding="utf-8") as f:
+                json.dump(result, f, ensure_ascii=False, indent=2)
+        except OSError as e:
+            ap.error(f"写计划失败: {e}")
+        result["plan_out"] = os.path.abspath(args.plan_out)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
         print_text(result)
+        if args.plan_out:
+            print(f"计划 -> {result['plan_out']}")
     return 0
 
 

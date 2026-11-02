@@ -25,12 +25,12 @@
 | `policy` | 下一步该用哪条臂；连续 blocked 是否暂停 | `Bandit` / `ContextualBandit.select/update/snapshot/suspended_arms` | 无（内存态） |
 | `policy_store` | 后验怎么跨轮复用 | `dump` · `load` · `restore` · `context_rates` | 写 / 读仓库外档案（原子写） |
 | `simulate` | 这个胜率下换策略值不值 | `parse_rates` · `rates_from_trials` · `simulate` · `simulate_contexts` | 无（纯离线） |
-| `explore` | 下一批请求该花在哪 | `replay` · `from_policy` · `plan` · `parse_arms` | 无（只读） |
+| `explore` | 下一批请求该花在哪、计划配额怎么扣 | `replay` · `from_policy` · `plan` · `Quota` · `parse_arms` | 无（只读；配额只在内存扣减） |
 | `advice` | 证据行说下一步该做什么 | `recommend(rows)` | 无（只读） |
 
 `measure` 只量选择器命中的容器，并跳过 `script` / `style`；整页字节会把导航和页脚算进来，是最常见的指标虚高来源。`content_len` 的返回可能是数字，也可能是 `missing` / `?unsupported` / `-`，调用方不要假定一定是整数。
 
-`context` 只从 URL 路径与首次结局取键（`host|路由类|响应类`），不读站点常量；它只决定“选臂读哪份统计”，不改写结局。`pacing` 的时钟与 sleep 可注入，测试不真的等待；连续限频达 `rate_limit_budget` 后由 `observe` 写入 host 冷却，`cooldown_left` 供编排层在发请求前检查，冷却时长取 `Retry-After` 与 `rate_limit_cooldown` 的较长者；`policy` 的随机种子可复现；它的暂停表只存在内存里（`block_budget` 默认 `3`，`0` 关闭），`select` 在候选臂全暂停时返回 `None`，快照记 `halt`，不会写进策略档案。这些都不联网，可单测。`policy_store` 只做原子写与结构校验，不联网、不选臂；档案里只有计数，`context_rates` 把它转成 `--rates-json` 同构的输入。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。`explore` 只消费试验行或策略档案，把后验转成带预算的探测计划，不联网、不发请求；规划顺序见 [explore.md](explore.md)。`advice` 只消费证据行，输出动作与停止条件，不执行命令；契约见 [agent.md](agent.md)。`cookies` 只按 `(臂, host)` 分配本轮会话文件或会话对象，存临时目录、`0600`、`close()` 即删；它不解析、不返回 cookie 内容，也不写入证据行或策略档案，机制见 [sessions.md](sessions.md)。
+`context` 只从 URL 路径与首次结局取键（`host|路由类|响应类`），不读站点常量；它只决定“选臂读哪份统计”，不改写结局。`pacing` 的时钟与 sleep 可注入，测试不真的等待；连续限频达 `rate_limit_budget` 后由 `observe` 写入 host 冷却，`cooldown_left` 供编排层在发请求前检查，冷却时长取 `Retry-After` 与 `rate_limit_cooldown` 的较长者；`policy` 的随机种子可复现；它的暂停表只存在内存里（`block_budget` 默认 `3`，`0` 关闭），`select` 在候选臂全暂停时返回 `None`，快照记 `halt`，不会写进策略档案。这些都不联网，可单测。`policy_store` 只做原子写与结构校验，不联网、不选臂；档案里只有计数，`context_rates` 把它转成 `--rates-json` 同构的输入。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。`explore` 只消费试验行或策略档案，把后验转成带预算的探测计划，不联网、不发请求；`Quota` 把计划里的 steps 压成 `(host, 路由类, 臂)` 配额（响应类请求前未知，同一路由合并计数），只做计数与扣减，由 `session` 在执行时过滤候选臂；规划顺序见 [explore.md](explore.md)。`advice` 只消费证据行，输出动作与停止条件，不执行命令；契约见 [agent.md](agent.md)。`cookies` 只按 `(臂, host)` 分配本轮会话文件或会话对象，存临时目录、`0600`、`close()` 即删；它不解析、不返回 cookie 内容，也不写入证据行或策略档案，机制见 [sessions.md](sessions.md)。
 
 ## 观测与归类契约
 

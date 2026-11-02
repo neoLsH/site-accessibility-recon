@@ -1,6 +1,6 @@
 # 探索规划：explore
 
-`crawl` 边跑边学，`bandit` 比较策略，`explore` 回答**下一批请求该花在哪**：哪些上下文还缺样本、哪条臂从没试过、预算够不够、什么时候该停。它只读已有试验行或策略档案，不联网、不发请求，也不产生证据行。
+`crawl` 边跑边学，`bandit` 比较策略，`explore` 回答**下一批请求该花在哪**：哪些上下文还缺样本、哪条臂从没试过、预算够不够、什么时候该停。它只读已有试验行或策略档案，不联网、不发请求，也不产生证据行；`--plan-out` 把计划交给 `crawl --plan` 按配额执行，闭合“后验 → 计划 → 执行 → 新后验”。
 
 ## 输入
 
@@ -35,6 +35,22 @@ recon explore --policy-in recon/<代号>/policy.json \
 | `allocated` / `remaining` | 已分配 / 剩余预算；不超过 `--budget` |
 | `observed` | 尝试数、成功数、单次成功率、被剔除行数、上下文推导行数 |
 | `notes` / `stop` | 预算未用尽、未覆盖动作等提示与停止规则 |
+| `plan_out` | 仅 `--plan-out` 时出现：计划文件绝对路径 |
+
+### 执行计划：`crawl --plan`
+
+```bash
+recon explore --trials recon/<代号>/trials.jsonl --budget 30 \
+    --plan-out recon/<代号>/plan.json
+recon crawl --from urls.txt --plan recon/<代号>/plan.json \
+    --trial-out recon/<代号>/trials2.jsonl
+```
+
+- 配额按 `host + 路由类` 聚合：响应类在请求前未知，同一路由下不同响应类的 steps 合并计数。
+- 只允许计划内的臂；计划外或额度用尽的路由一个请求都不发（连 robots.txt 都不取），页面记 `plan-exhausted`。
+- 选臂仍在额度内按策略决定；`--max-requests`、robots、节流、熔断与限频冷却全部照旧。
+- 计划里的臂与 `--arms` 无交集时，`crawl` 在 stderr 警告；`plan.json` 结构不对则退出码 `2`。
+- 摘要给出 `plan`（`planned` / `used` / `remaining` / `routes`）与 `plan_exhausted_pages`。
 
 `pages` 是样本权重，不是精确页数：试验行按 `url` 去重，策略档案按 `pulls` 合计。它只用于排序与平局，不参与胜率计算。
 
@@ -87,13 +103,14 @@ recon crawl --from urls2.txt --selector '#content' --max-pages 30 \
 recon explore --policy-in recon/demo/policy.json --budget 20
 ```
 
-`explore` 只给计划，不执行它给的请求；真正的请求仍由 `crawl` / `quick` / `fetch` 发出，robots、节流与熔断照常生效。
+`explore` 只给计划，不执行它给的请求；要让请求严格按计划走，把 `--plan-out` 的产物交给 `crawl --plan`，robots、节流与熔断照常生效。
 
 ## 偏差与限制
 
 - **来源偏差**：试验行来自已经在选臂的 `crawl`，弱臂样本更少；样本不足时宁可用 `--policy-in` 的完整后验，或先跑一轮 `crawl`。
 - **点估计**：每臂只有成功率与成本均值，不建模概率门、时间漂移与并发。
 - **不模拟耗时**：预算单位是请求数；`--delay`、退避与 robots 请求不在内。
+- **计划配额是上限不是指令**：`crawl --plan` 只限制“哪个路由、哪条臂、最多几个请求”，不保证每条 step 都被执行；页面数少于计划时额度会剩下，多于计划时多出的页记 `plan-exhausted`。
 - **上下文是粗分**：推导出的 `unknown` 响应类会把不同结局混在一起；发现结论反复翻转时，先核对试验行是否带 `context`。
 - **不产生证据**：规划结果不能喂 `stats`，也不该写进站点档案的 `metrics`。
 

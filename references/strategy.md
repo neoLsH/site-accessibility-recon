@@ -204,7 +204,7 @@ recon explore --policy-in recon/<代号>/policy.json --arms native,cffi:chrome -
 
 - 每个上下文先看本地样本：未见臂各补到 `--target-pulls`，样本不足的臂补差额，够样本但 `P(best)` 仍低的上下文探测次优臂。
 - 已判 `exploit` 的上下文进入 `hold`，不再分配请求；预算按不确定性加权，单上下文有上限。
-- 输出只是计划：真正发请求的仍是 `crawl` / `quick` / `fetch`，robots、节流与熔断不变。细节见 [explore.md](explore.md)。
+- `--plan-out` 把计划写成 JSON，`crawl --plan` 按配额执行：只允许计划内的臂，计划外或额度用尽的路由一个请求都不发（连 robots.txt 都不取）。配额按 `host + 路由类` 聚合——响应类在请求前未知，同一路由的不同响应类共享额度；选臂仍在额度内按策略决定。robots、节流、熔断与限频冷却照旧。细节见 [explore.md](explore.md) 与 [crawl.md](crawl.md)。
 
 ## 边界
 

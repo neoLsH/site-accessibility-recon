@@ -40,7 +40,8 @@ class ArmSession:
                  cost_weight=0.1, prior_strength=4.0, half_life=0.0,
                  block_budget=3, cookies=True,
                  rate_limit_budget=pacing.DEFAULT_RATE_LIMIT_BUDGET,
-                 rate_limit_cooldown=pacing.DEFAULT_RATE_LIMIT_COOLDOWN):
+                 rate_limit_cooldown=pacing.DEFAULT_RATE_LIMIT_COOLDOWN,
+                 plan=None):
         from . import arms as armreg
         self.registry = registry or armreg.load()
         self.arms = [self.registry.get(name) for name in arm_names]
@@ -69,6 +70,7 @@ class ArmSession:
         self.permission = permission
         self.trials = []
         self.cookies = cookiemod.CookieStore(enabled=cookies)
+        self.plan = plan
 
     def close(self):
         self.cookies.close()
@@ -98,6 +100,14 @@ class ArmSession:
                               "先降速或静置，换客户端臂无解")
             page["cooldown_left"] = round(cooling, 1)
             return page
+        if self.plan is not None and not self.plan.arms(host, route):
+            # 计划不给这条路由发请求时，连 robots.txt 都不取
+            page["skipped"] = "plan-exhausted"
+            page["halt"] = "plan-exhausted"
+            page["stopped"] = "plan-exhausted"
+            page["reason"] = ("探索计划里该 host + 路由类没有剩余请求额度；"
+                              "换臂不在计划内，先跑 explore 重新分配")
+            return page
         if not permission:
             allowed = robots.decision(url, timeout=self.timeout, ua=self.ua)
             page["robots"] = allowed
@@ -122,6 +132,18 @@ class ArmSession:
                 page["tries"].append({"arm": name, "skipped": True,
                                       "outcome": "noise", "reason": reason})
 
+        if self.plan is not None:
+            planned = self.plan.arms(host, route)
+            candidates = [c for c in candidates if c in planned]
+            if not candidates:
+                flush_skipped()
+                page["halt"] = "plan-exhausted"
+                page["skipped"] = "plan-exhausted"
+                page["stopped"] = "plan-exhausted"
+                page["reason"] = ("计划指定的臂都不在本轮候选里；"
+                                  "按计划的臂名与 --arms / --require 对齐")
+                return page
+
         if not candidates:
             flush_skipped()
             page["halt"] = "no-arm"
@@ -131,6 +153,15 @@ class ArmSession:
 
         used = 0
         while candidates:
+            if self.plan is not None:
+                candidates = [c for c in candidates
+                              if self.plan.left(host, route, c) > 0]
+                if not candidates:
+                    page["halt"] = "plan-exhausted"
+                    page["skipped"] = "plan-exhausted"
+                    page["stopped"] = "plan-exhausted"
+                    page["reason"] = "该路由的计划请求额度已用尽"
+                    break
             if max_attempts is not None and used >= max_attempts:
                 page["halt"] = "budget"
                 page["stopped"] = "budget"
@@ -165,6 +196,8 @@ class ArmSession:
                 page["observation"] = obs
 
             used += 1
+            if self.plan is not None:
+                self.plan.consume(host, route, name)
             page["last"] = dict(verdict)
             resp = ctxmod.response_class(verdict)
             ctx = f"{route}|{resp}"

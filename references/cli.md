@@ -7,15 +7,15 @@
 | 命令 | 底层脚本 | 回答什么 | 关键选项 |
 |---|---|---|---|
 | `doctor` | `preflight.sh` | 环境缺什么、缺了会降级成什么 | — |
-| `quick` | `quick.py` | 每条 URL 值不值得继续测 | `--from` `--selector` `--min-content` `--delay` `--arms` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--rate-limit-budget` `--rate-limit-cooldown` `--policy-in` `--policy-out` `--skip-robots` `--no-cookies` |
+| `quick` | `quick.py` | 每条 URL 值不值得继续测 | `--from` `--selector` `--min-content` `--delay` `--arms` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--rate-limit-budget` `--rate-limit-cooldown` `--plan` `--policy-in` `--policy-out` `--skip-robots` `--no-cookies` |
 | `shape` | `shape.py` | 这一份响应是什么形态 | `--html` `--signals` `--explain` `--save-html` `--min-content` |
-| `matrix` | `matrix.py` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--arms` `--stop-on-ok` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--rate-limit-budget` `--rate-limit-cooldown` `--policy-in` `--policy-out` `--save-html` `--delay` `--cookies` |
+| `matrix` | `matrix.py` | 同 UA 换客户端栈是否翻转 | `--selector` `--passes` `--clients` `--arms` `--stop-on-ok` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--rate-limit-budget` `--rate-limit-cooldown` `--plan` `--policy-in` `--policy-out` `--save-html` `--delay` `--cookies` |
 | `canary` | `canary.py` | 是否概率门；改前改后是否回归 | `--selector` `--passes` `--delay` `--save` `--compare` `--arms` `--policy` `--arms-file` |
 | `stats` | `stats.py` | 按路由拆分的双指标、区间与改前改后差值 | `--compare` `--min-den`；位置参数为 JSONL / canary 基线 JSON |
-| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--rate-limit-budget` `--rate-limit-cooldown` `--policy-in` `--policy-out` `--out-dir` `--no-cookies` |
-| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断护栏 | `--from` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--rate-limit-budget` `--rate-limit-cooldown` `--policy-in` `--policy-out` `--seed` `--evidence-out` `--trial-out` `--no-cookies` |
+| `fetch` | `fetch-page.py` | 分层取内容；失败时 WAF 归类 | `--selector` `--impersonate` `--rung` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--rate-limit-budget` `--rate-limit-cooldown` `--plan` `--policy-in` `--policy-out` `--out-dir` `--no-cookies` |
+| `crawl` | `crawl.py` | 批量取内容：多臂选举 + 预算 / 熔断 / 计划配额护栏 | `--from` `--arms` `--arms-file` `--require` `--policy` `--cost-weight` `--prior-strength` `--half-life` `--block-budget` `--rate-limit-budget` `--rate-limit-cooldown` `--plan` `--policy-in` `--policy-out` `--seed` `--evidence-out` `--trial-out` `--no-cookies` |
 | `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` / `--rates-json` / `--policy-in` `--pages` `--policies` `--seed` |
-| `explore` | `explore.py` | 只读探索规划：后验 → 下一批探测与停止规则 | `--trials` / `--policy-in` `--arms` `--budget` `--max-per-context` `--target-pulls` `--prior-strength` `--half-life` `--cost-weight` `--block-budget` `--seed` |
+| `explore` | `explore.py` | 只读探索规划：后验 → 下一批探测与停止规则，可写成可执行计划 | `--trials` / `--policy-in` `--arms` `--budget` `--max-per-context` `--target-pulls` `--prior-strength` `--half-life` `--cost-weight` `--block-budget` `--seed` `--plan-out` |
 | `advise` | `advise.py` | 证据行 → 下一步动作（只读，不执行） | `--route` `--json` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
