@@ -1,11 +1,11 @@
 ---
 name: site-accessibility-recon
-description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：识别页面形态（静态 / CSR 空壳 / 挑战页 / 登录墙 / 业务空态），区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，用多 pass 翻转率区分确定性闸门与概率门，遇 WAF 先按机制归类再选合规路径；在合规客户端臂之间按上下文与成本做 MAB 选臂，用分层先验与遗忘窗口处理冷启动和规则漂移，策略档案支持跨轮热启动，只读探索规划把后验变成下一批请求预算并可被 crawl --plan 按配额执行，连续可归因 blocked 会按 host + 路由暂停单臂（全部暂停即 halt），连续限频会让整个 host 进入冷却且限频样本不进选臂统计，同一次运行内按 臂 + host 复用服务端下发的会话状态（仅临时目录、不进证据），档案经 lint 后推导执行计划，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标（按路由拆分 + Wilson 区间）验证对策，改前改后按路由出差值与 Newcombe 区间、样本不足不判方向，用基线对比防回归。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，页面形态识别，概率门与翻转率，多内核选臂，上下文成本 MAB，分层先验，策略热启动与跨轮策略档案，探索预算分配与未见臂探测，探索计划执行与计划外零请求，安全探索与连续 blocked 暂停单臂，限频冷却与 Retry-After，会话连续性与同轮 cookie 复用，双指标结算与回归基线，可行性快筛，bot defense triage，scrape reliability。
+description: 系统化、分层的网页可访问性排查与反爬归因。回答“这个 URL 为什么抓不到 / 抓不全”，并先快速判断可访问性路径可行性：识别页面形态（静态 / CSR 空壳 / 挑战页 / 登录墙 / 业务空态），区分链路失败、反爬拦截、内容业务状态，再按 传输 / 请求 / 运行时 / 凭证 / 服务端策略 逐层单变量隔离，用指纹分析定身份，用多 pass 翻转率区分确定性闸门与概率门，遇 WAF 先按机制归类再选合规路径；在合规客户端臂之间按上下文与成本做 MAB 选臂，用分层先验与遗忘窗口处理冷启动和规则漂移，策略档案支持跨轮热启动，只读探索规划把后验变成下一批请求预算并可被 crawl --plan 按配额执行，连续可归因 blocked 会按 host + 路由暂停单臂（全部暂停即 halt），连续限频会让整个 host 进入冷却且限频样本不进选臂统计，同一次运行内按 臂 + host 复用服务端下发的会话状态（仅临时目录、不进证据），档案经 lint 后推导执行计划，产出闸门图、证据矩阵、机器可读站点档案与可复现报告，并以“可访问性成功率 / 内容完整率”双指标（按路由拆分 + Wilson 区间）验证对策，改前改后按路由出差值与 Newcombe 区间、样本不足不判方向，用基线对比防回归。Triggers - 抓取返回空、被拦、验证码、登录墙、内容不完整，异常状态码、非标准拒绝页，TLS/H2 指纹，JA3/JA4，canvas/WebGL 指纹，CDP 与 headless 检测，WAF 归类与风控拦截处理，页面形态识别，概率门与翻转率，多内核选臂，上下文成本 MAB，分层先验，策略热启动与跨轮策略档案，探索预算分配与未见臂探测，默认探索 Agent，站点分析与同站路径发现，frontier 增补，探索计划执行与计划外零请求，默认探索 Agent 的有界编排（形态门槛 / 路径发现 / frontier 增补 / 配额执行），安全探索与连续 blocked 暂停单臂，限频冷却与 Retry-After，会话连续性与同轮 cookie 复用，双指标结算与回归基线，可行性快筛，bot defense triage，scrape reliability。
 license: MIT
 compatibility: 需要 python3 与 curl；建议另装 curl_cffi 做浏览器级 TLS 指纹仿真。要让脚本真正联网，还需要能出网的出口；断网时自动降级为离线复核（只分析已留存的 HTML 与快照）。
 allowed-tools: Bash, Read, Write, Edit, WebFetch, Task
 metadata:
-  version: 1.21.0
+  version: 1.22.0
   scope: diagnostics
 ---
 
@@ -98,6 +98,7 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 | 选臂上下文、奖励与成本、安全探索、会话状态、各能力点的选臂语义 | [references/strategy.md](references/strategy.md) · [references/sessions.md](references/sessions.md) |
 | 离线推演换策略值不值；把后验变成下一批探测、预算怎么分 | [references/bandit.md](references/bandit.md) · [references/explore.md](references/explore.md) |
 | 四种形态怎么分工（Skill / CLI / Agent / LLM） | [references/forms.md](references/forms.md) |
+| 跑默认探索 Agent：形态门槛、路径发现、frontier 增补、有界停止 | [references/agent.md](references/agent.md) |
 | 接 Agent / LLM：证据行 → 下一步动作（契约、提示骨架、护栏） | [references/agent.md](references/agent.md) |
 | 第一次跑，想跟着走一遍完整链路 | [references/walkthrough.md](references/walkthrough.md) |
 | 先装环境、知道用哪个工具、别踩版本坑 | [references/toolbox.md](references/toolbox.md) |
@@ -120,11 +121,10 @@ recon stats before.jsonl --compare after.jsonl      # 改前改后差值 + 样�
 recon fetch <url> --selector '#content' --rung native  # 只跑一级客户端臂
 recon fetch <url> --arms browser:chromium --arms-file ~/.config/site-recon/arms.json  # 外部内核
 recon crawl --from urls.txt --selector '#content'   # 批量取内容：多臂选举 + 预算护栏
-recon crawl --from urls.txt --policy-out recon/<代号>/policy.json   # 存下后验，下一轮热启动
-recon crawl --from urls2.txt --policy-in recon/<代号>/policy.json --policy-out recon/<代号>/policy.json
-recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演选臂策略
-recon bandit --rates-json recon/<代号>/rates.json    # 分组推演；--policy-in 用策略档案
+recon crawl --from urls.txt --policy-out recon/<代号>/policy.json   # 存后验；下一轮 --policy-in 同路径热启动
+recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演；--rates-json / --policy-in 分组
 recon explore --trials recon/<代号>/trials.jsonl --budget 30  # 只读：下一批探测
+recon agent <url> --out recon/<代号>                 # 默认 Agent：分析 → 探索 → 计划 → 配额执行
 recon advise recon/<代号>/evidence.jsonl --json      # 证据行 → 下一步动作（Agent / LLM 契约）
 ```
 

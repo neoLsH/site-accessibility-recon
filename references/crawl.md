@@ -104,7 +104,7 @@ recon crawl --from urls-b.txt --selector '#content' \
     --plan recon/demo/plan.json --trial-out recon/demo/trials2.jsonl
 ```
 
-它按上下文列出未见臂、补样本与探索动作，并给出停止规则；`--plan-out` 的产物交给 `crawl --plan` 就按配额执行，见 [explore.md](explore.md)。要按上下文分开推演，把各组胜率写进 `--rates-json`，格式见 [strategy.md](strategy.md)。
+它按上下文列出未见臂、补样本与探索动作，并给出停止规则；`--plan-out` 的产物交给 `crawl --plan` 就按配额执行，见 [explore.md](explore.md)。要按上下文分开推演，把各组胜率写进 `--rates-json`，格式见 [strategy.md](strategy.md)。需要自动串起站点分析、路径发现、规划与多轮 `crawl --plan` 时，用 `recon agent`（见 [agent.md](agent.md)）；它对 `crawl` 的预算、robots、节流、熔断与配额语义不做任何放宽。
 
 ## 边界
 

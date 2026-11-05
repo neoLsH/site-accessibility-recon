@@ -4,6 +4,33 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.22.0] — 2026-11-05
+
+把探索闭环推到“默认 Agent”：一条 `recon agent` 命令有界地跑完站点分析、多臂探索、同站链接发现、配额规划与执行，并把停止原因写成机器可读的 `agent/1`。
+
+### 新增
+
+- `scripts/agent.py`：默认探索 Agent。每个 host 先用一个种子判形态（robots 先行，挑战页 / 登录墙 / 链路失败 / 错误页 / robots 禁止直接拦下），再调 `crawl` 多臂探索；从本轮留存 HTML 提取同站链接作为 frontier；下一轮用 `explore` 出配额计划并增补新路由类，交给 `crawl --plan` 执行；`advise` 的终态动作、限频冷却、熔断与全臂暂停立即停手。
+- `reconlib/discover.py`：纯 HTML 链接提取（`anchors` / `links`），只保留同站 `http(s)` 链接，跳过静态资源、去重并封顶；不联网、不查 robots、不维护 frontier。
+- `reconlib/agent.py`：决策原子 `decide`（轮数 / 预算 / 建议动作）、`safety_stop`（必须停手的 crawl 摘要）、`augment`（把未覆盖路由类按“不同 URL 数 × 每臂样本”补进计划）。
+- `recon agent <url> --out recon/<代号>` 与 `--from` 种子文件；`--max-rounds`（默认 2）、`--max-pages`（20）、`--max-requests`（40）、`--budget`（12）、`--discover/--no-discover`、`--max-discovered`（20）；其余采集参数与 `crawl` 同名同义。
+- 产物：跨轮 `evidence.jsonl` / `trials.jsonl`、单轮 `r<N>-*.jsonl` 与 `r<N>-urls.txt`、`plan.json`、`policy.json`、`bodies/`、`agent.json`。
+- 输出契约 `agent/1`：`seeds` / `out` / `budget` / `analysis` / `rounds` / `advice` / `stop` / `artifacts`；停止原因覆盖 `goal` / `business` / `noise` / `rate-limit` / `max-rounds` / `budget` / `frontier-empty` / `plan-empty` / `analysis-gated` / `safety` / `config` / `crawl-error`。
+- `tests/test_agent.py`（21 个）：链接提取（同站 / 相对 / 去重 / 资源跳过 / host 白名单 / 封顶）、决策与安全停止、frontier 增补、单轮分析与多轮计划执行、登录墙 / robots 拦截、用法错误。
+
+### 变更
+
+- `recon.py` 接入 `agent` 子命令；`SKILL.md` 版本升到 1.22.0，`README.md`、`AGENTS.md`、`references/agent.md`、`forms.md`、`cli.md`、`atoms.md`、`explore.md`、`crawl.md` 同步。
+- 新增自检“默认 Agent”门禁：形态门槛、frontier 增补、有界停止，且只编排 `crawl` / `explore`、不自己发请求。
+
+### 已知限制
+
+- 站点分析每个 host 只取一个种子，形态可能不代表整站。
+- 路径发现只跟随 `<a href>` 且限定种子 host，不展开 sitemap、`<link>` 或 JS 路由。
+- frontier 额度按不同 URL 数估算，页面数少于计划时额度会剩下。
+- Agent 不自行修改选择器或抽取口径；`check-extraction` 等业务结论仍需人工处理。
+- 退出码 `0` 包含预算 / 轮数 / 终态建议 / 合规拦下，不表示“全部页面可访问”。
+
 ## [1.21.0] — 2026-11-02
 
 把探索计划从“建议”变成“可执行配额”：`explore` 产出的计划交给 `crawl --plan` 严格执行，计划外路由一个请求都不发，后验 → 计划 → 执行 → 新后验形成闭环。

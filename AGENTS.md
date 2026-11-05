@@ -39,6 +39,8 @@
 
 探索计划可执行：`explore --plan-out` 写出的计划交给 `crawl --plan`，配额按 `host + 路由类` 聚合、只允许计划内的臂，计划外或额度用尽的路由零请求（含 robots.txt），记 `plan-exhausted`；选臂仍在额度内按策略决定。规则见 [explore.md](references/explore.md)。
 
+默认 Agent：`recon agent <url> --out recon/<代号>` 有界地串起站点分析（每 host 1 请求，robots 先行）、`crawl` 多臂探索、同站链接发现、`explore` 计划 + frontier 增补与 `crawl --plan` 配额执行；轮数 / 页面 / 请求三重上限，终态建议、限频冷却、熔断与全臂暂停即停。它不是常驻调度器，执行仍沿用 `crawl` 的护栏。规则见 [agent.md](references/agent.md)。
+
 会话状态只在同一次运行内、按 `(臂, host)` 隔离，存临时目录且命令结束即删；`crawl` / `fetch` / `quick` 默认开启（`--no-cookies` 关闭），`matrix` 默认关闭（`--cookies` 开启），`canary` 不持有。会话值不进证据行与策略档案，也不跨进程复用。规则见 [sessions.md](references/sessions.md)。
 
 ## 按需读取
@@ -58,7 +60,7 @@
 - 批量采集（多臂选举 / 预算护栏 / 证据行与试验行）：[references/crawl.md](references/crawl.md)
 - 离线推演（给定胜率比较选举策略）：[references/bandit.md](references/bandit.md)
 - 探索规划（后验 → 下一批探测预算）与按配额执行（`crawl --plan`）：[references/explore.md](references/explore.md)
-- Agent / LLM 接口（`advise/1` 契约、动作优先级、提示骨架与护栏）：[references/agent.md](references/agent.md)
+- 默认探索 Agent（有界循环、`agent/1`、停止原因）与 LLM 接口（`advise/1` 契约、动作优先级、提示骨架与护栏）：[references/agent.md](references/agent.md)
 - 四种形态（Skill / CLI / Agent / LLM）的分工、共享契约与扩展方式：[references/forms.md](references/forms.md)
 - 端到端走查（本地示例站，不碰真实目标）：[references/walkthrough.md](references/walkthrough.md)
 - 对策阶梯与决策树：[references/countermeasure-ladder.md](references/countermeasure-ladder.md)
@@ -95,6 +97,7 @@ scripts/recon.py bandit --rates-json recon/<代号>/rates.json      # 按上下�
 scripts/recon.py bandit --policy-in recon/<代号>/policy.json      # 用上一轮策略档案推演
 scripts/recon.py explore --trials recon/<代号>/trials.jsonl --budget 30  # 只读：下一批探测预算
 scripts/recon.py advise recon/<代号>/evidence.jsonl --json        # 证据行 → 下一步动作（只读，不执行）
+scripts/recon.py agent <url> --out recon/<代号>                  # 默认 Agent：分析 → 探索 → 计划 → 配额执行（有界）
 scripts/recon.py surface <url>                                  # 站点 JS 采集面：采了什么、往哪上报
 scripts/recon.py plan recon/<代号>/profile.yaml                  # 档案 lint + 执行计划
 scripts/recon.py report recon/<代号>/profile.yaml                # 从档案生成报告

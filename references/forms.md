@@ -6,7 +6,7 @@
 reconlib 原子（度量 / 归类 / robots / 取样 / 节奏 / 证据 / 上下文 / 选举 / 推演 / 建议）
    ├─ Skill  → 告诉 Agent 何时用哪个命令、怎么读结果
    ├─ CLI    → recon <命令>，人读表 + --json 单对象
-   ├─ Agent  → crawl → stats → advise → 执行 → 回写证据
+   ├─ Agent  → recon agent（分析 → 探索 → 计划 → 执行）或 crawl → stats → advise 循环
    └─ LLM    → 把 advise/1 当事实层，负责解释、排序与档案
 ```
 
@@ -14,14 +14,14 @@ reconlib 原子（度量 / 归类 / robots / 取样 / 节奏 / 证据 / 上下�
 |---|---|---|---|---|
 | Skill | [SKILL.md](../SKILL.md) + `references/` | 流程、判据、案例与红线 | Agent 激活、人按需阅读 | 发请求、跑批 |
 | CLI | `scripts/recon.py <命令>` | 人读表；`--json` 单对象 | 脚本、CI、手工排查 | 自己决定下一步 |
-| Agent | `recon advise --json` | `advise/1`：动作 + 层 + 理由 + 停止条件 | 自动循环与编排 | 采集、执行命令 |
+| Agent | `recon agent` / `recon advise --json` | `agent/1` 有界循环报告；`advise/1` 只读动作契约 | 一键探索与自动编排 | 常驻调度、绕过护栏 |
 | LLM | `advise/1` + 提示骨架 | 解释、路由排序、档案草稿 | 汇报与决策辅助 | 改写计数、下因果结论 |
 
 ## 同一条链路
 
 1. **Skill** 决定先做什么：可行性快筛 → 分诊 → 分层隔离 → 对策与回归。
 2. **CLI** 执行单点：`quick` / `shape` / `matrix` / `canary` / `fetch` / `crawl` 产出观测与证据行。
-3. **Agent** 循环：`stats` 结算 → `advise` 取下一步 → 按 `stop` 条件执行或停手 → 回写新证据行。
+3. **Agent** 循环：`recon agent` 串起站点分析、`crawl`、路径发现、`explore` 计划与 `crawl --plan`；也可自己用 `stats` → `advise` → 执行 → 回写证据行。
 4. **LLM** 解释：只引用 `advise/1` 里的计数与动作，说明假设与验证方式，不替代规则层。
 
 `bandit` 与 `bandit.md` 是这条链路的离线旁支：只比较选举策略，不产生证据行。
@@ -54,9 +54,10 @@ reconlib 原子（度量 / 归类 / robots / 取样 / 节奏 / 证据 / 上下�
 |---|---|
 | 第一次排查，需要判据与顺序 | Skill |
 | 已有脚本 / CI，要可结算的输出 | CLI + `--json` |
+| 想一键跑完分析、探索与配额执行 | `recon agent`（有界循环） |
 | 想按证据自动决定下一步 | Agent（`advise`） |
 | 要把结果讲给人听、写进报告 | LLM（读 `advise/1`） |
 | 只是想比较选举策略 | `bandit`（离线旁支） |
 | 想把这一轮学到的选臂后验留给下一轮 | `crawl` / `quick` / `matrix` / `fetch` 的 `--policy-out`，下一轮 `--policy-in` |
 
-Agent 与 LLM 的接入细节见 [agent.md](agent.md)；命令与退出码见 [cli.md](cli.md)。
+默认 Agent、`agent/1` 契约与 LLM 接入细节见 [agent.md](agent.md)；命令与退出码见 [cli.md](cli.md)。

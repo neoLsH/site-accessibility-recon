@@ -17,6 +17,7 @@
 | `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` / `--rates-json` / `--policy-in` `--pages` `--policies` `--seed` |
 | `explore` | `explore.py` | 只读探索规划：后验 → 下一批探测与停止规则，可写成可执行计划 | `--trials` / `--policy-in` `--arms` `--budget` `--max-per-context` `--target-pulls` `--prior-strength` `--half-life` `--cost-weight` `--block-budget` `--seed` `--plan-out` |
 | `advise` | `advise.py` | 证据行 → 下一步动作（只读，不执行） | `--route` `--json` |
+| `agent` | `agent.py` | 默认探索 Agent：站点分析 → 探索 → 路径发现 → 计划 → 配额执行（有界循环） | `--from` `--out` `--selector` `--max-rounds` `--max-pages` `--max-requests` `--budget` `--discover` / `--no-discover` `--max-discovered` `--arms` `--arms-file` `--policy` `--policy-in` `--seed` `--i-have-permission` `--no-cookies` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
 | `plan` | `plan.py` | 档案 lint + 从最早失败门推导执行计划 | 档案路径（位置参数） |
@@ -215,6 +216,23 @@ recon advise recon/<代号>/evidence.jsonl --route /article/1
 - 只吃证据行；试验行（`kind: trial`）与未知路由退出 2。
 - 动作与优先级见 [agent.md](agent.md)。
 
+## 默认 Agent
+
+`agent` 是一条命令跑完“分析 → 探索 → 计划 → 执行 → 收敛”的有界循环，不是常驻调度器：
+
+```bash
+recon agent https://example.com/ --selector '#content' --out recon/<代号> \
+    --max-rounds 2 --max-pages 20 --max-requests 40 --budget 12
+```
+
+- 站点分析每个 host 只发 1 个页面请求（robots 检查另计）；挑战页 / 登录墙 / 链路失败 / 错误页 / robots 禁止的 host 直接拦下，不再请求。
+- 每轮 `crawl` 产出证据行与试验行；从留存 HTML 提取同站链接（跳过静态资源）作为 frontier。
+- 下一轮先 `explore` 出配额计划，再把 frontier 新路由类补进计划（每 URL × 每臂 1 次），由 `crawl --plan` 执行；计划外路由零请求。
+- 轮数 / 页面 / 请求三重上限；`advise` 的终态动作与限频冷却、熔断、全臂暂停会立即停手。
+- 产物：`evidence.jsonl` / `trials.jsonl` / `r<N>-*.jsonl` / `r<N>-urls.txt` / `plan.json` / `policy.json` / `bodies/` / `agent.json`。
+- 输出契约 `agent/1`：`seeds` / `out` / `budget` / `analysis` / `rounds` / `advice` / `stop` / `artifacts`。退出码 `0` 正常收敛（含预算 / 轮数 / 合规拦下），`1` 安全或配置停手，`2` 用法错误。
+- 详细阶段、停止原因与边界见 [agent.md](agent.md)。
+
 ## 常见组合
 
 ```bash
@@ -228,6 +246,7 @@ recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演选臂策略
 recon bandit --rates-json recon/<代号>/rates.json    # 按上下文分组推演
 recon explore --trials recon/<代号>/trials.jsonl     # 后验 → 下一批探测预算
 recon advise recon/<代号>/evidence.jsonl --json      # 证据行 → 下一步动作
+recon agent <url> --out recon/<代号>                 # 一站式：分析 → 探索 → 计划 → 配额执行
 recon plan recon/<代号>/profile.yaml                 # 档案 → 计划
 recon stats recon/<代号>/evidence.jsonl              # 双指标
 recon report recon/<代号>/profile.yaml --out recon/<代号>/report.md

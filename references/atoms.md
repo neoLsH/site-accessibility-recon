@@ -1,6 +1,6 @@
 # 原子层：reconlib
 
-`scripts/reconlib/` 把“量内容、认归类、查 robots、取一次样本、管会话、控节奏、落证据、认上下文、选臂、存策略、规划探索、推下一步”拆成互不依赖的原子。上层只做编排：`fetch` 是一条**客户端臂阶梯**，`crawl` 是**多臂选举 + 预算护栏**，`explore` 把后验翻成下一批探测，`advise` 把证据行翻译成下一步动作；它们都只从这些原子取数，不另写一套口径。网络编排本身收敛到 `session`，它不是原子。
+`scripts/reconlib/` 把“量内容、认归类、查 robots、取一次样本、管会话、控节奏、落证据、认上下文、选臂、存策略、规划探索、推下一步、提同站链接、判继续还是停”拆成互不依赖的原子。上层只做编排：`fetch` 是一条**客户端臂阶梯**，`crawl` 是**多臂选举 + 预算护栏**，`explore` 把后验翻成下一批探测，`advise` 把证据行翻译成下一步动作，`agent` 把分析、发现、规划与执行串成有界循环；它们都只从这些原子取数，不另写一套口径。网络编排本身收敛到 `session`，它不是原子。
 
 ## 为什么先拆原子
 
@@ -8,7 +8,7 @@
 - **可单测**：纯函数不联网，本地 fixture 即可验证；网络部分只集中在 `fetch` / `robots`。
 - **可替换**：换渲染服务、换协议栈，只加一个客户端臂，不动归类和度量。
 
-## 十五个原子
+## 十七个原子
 
 | 模块 | 回答什么 | 关键接口 | 副作用 |
 |---|---|---|---|
@@ -27,10 +27,12 @@
 | `simulate` | 这个胜率下换策略值不值 | `parse_rates` · `rates_from_trials` · `simulate` · `simulate_contexts` | 无（纯离线） |
 | `explore` | 下一批请求该花在哪、计划配额怎么扣 | `replay` · `from_policy` · `plan` · `Quota` · `parse_arms` | 无（只读；配额只在内存扣减） |
 | `advice` | 证据行说下一步该做什么 | `recommend(rows)` | 无（只读） |
+| `discover` | 这一页有哪些同站链接值得继续 | `anchors(html)` · `links(html, base, hosts, max_links)` | 无 |
+| `agent` | 下一轮继续吗、为什么停、新路由怎么进计划 | `decide` · `safety_stop` · `augment` | 无（只判断） |
 
 `measure` 只量选择器命中的容器，并跳过 `script` / `style`；整页字节会把导航和页脚算进来，是最常见的指标虚高来源。`content_len` 的返回可能是数字，也可能是 `missing` / `?unsupported` / `-`，调用方不要假定一定是整数。
 
-`context` 只从 URL 路径与首次结局取键（`host|路由类|响应类`），不读站点常量；它只决定“选臂读哪份统计”，不改写结局。`pacing` 的时钟与 sleep 可注入，测试不真的等待；连续限频达 `rate_limit_budget` 后由 `observe` 写入 host 冷却，`cooldown_left` 供编排层在发请求前检查，冷却时长取 `Retry-After` 与 `rate_limit_cooldown` 的较长者；`policy` 的随机种子可复现；它的暂停表只存在内存里（`block_budget` 默认 `3`，`0` 关闭），`select` 在候选臂全暂停时返回 `None`，快照记 `halt`，不会写进策略档案。这些都不联网，可单测。`policy_store` 只做原子写与结构校验，不联网、不选臂；档案里只有计数，`context_rates` 把它转成 `--rates-json` 同构的输入。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。`explore` 只消费试验行或策略档案，把后验转成带预算的探测计划，不联网、不发请求；`Quota` 把计划里的 steps 压成 `(host, 路由类, 臂)` 配额（响应类请求前未知，同一路由合并计数），只做计数与扣减，由 `session` 在执行时过滤候选臂；规划顺序见 [explore.md](explore.md)。`advice` 只消费证据行，输出动作与停止条件，不执行命令；契约见 [agent.md](agent.md)。`cookies` 只按 `(臂, host)` 分配本轮会话文件或会话对象，存临时目录、`0600`、`close()` 即删；它不解析、不返回 cookie 内容，也不写入证据行或策略档案，机制见 [sessions.md](sessions.md)。
+`context` 只从 URL 路径与首次结局取键（`host|路由类|响应类`），不读站点常量；它只决定“选臂读哪份统计”，不改写结局。`pacing` 的时钟与 sleep 可注入，测试不真的等待；连续限频达 `rate_limit_budget` 后由 `observe` 写入 host 冷却，`cooldown_left` 供编排层在发请求前检查，冷却时长取 `Retry-After` 与 `rate_limit_cooldown` 的较长者；`policy` 的随机种子可复现；它的暂停表只存在内存里（`block_budget` 默认 `3`，`0` 关闭），`select` 在候选臂全暂停时返回 `None`，快照记 `halt`，不会写进策略档案。这些都不联网，可单测。`policy_store` 只做原子写与结构校验，不联网、不选臂；档案里只有计数，`context_rates` 把它转成 `--rates-json` 同构的输入。`simulate` 只消费胜率与策略，不发请求，也不产生证据行。`explore` 只消费试验行或策略档案，把后验转成带预算的探测计划，不联网、不发请求；`Quota` 把计划里的 steps 压成 `(host, 路由类, 臂)` 配额（响应类请求前未知，同一路由合并计数），只做计数与扣减，由 `session` 在执行时过滤候选臂；规划顺序见 [explore.md](explore.md)。`advice` 只消费证据行，输出动作与停止条件，不执行命令；契约见 [agent.md](agent.md)。`discover` 只从已留存的 HTML 里提 `http(s)` 同站链接，跳过静态资源、去重并封顶，不联网、不查 robots、不维护 frontier。`agent` 只做三条规则：按预算 / 轮数 / 建议动作决定是否继续，按 crawl 摘要识别必须停手的安全信号，把未覆盖路由类按“不同 URL 数 × 每臂样本”补进计划；它不发请求、不写文件，执行仍由 `scripts/agent.py` 调用 `crawl` / `explore` 完成。`cookies` 只按 `(臂, host)` 分配本轮会话文件或会话对象，存临时目录、`0600`、`close()` 即删；它不解析、不返回 cookie 内容，也不写入证据行或策略档案，机制见 [sessions.md](sessions.md)。
 
 ## 观测与归类契约
 

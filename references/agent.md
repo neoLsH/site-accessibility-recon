@@ -1,8 +1,47 @@
 # Agent 形态与 LLM 接口：advise
 
-Skill 给人读，CLI 给脚本调，Agent 需要一个**稳定、可校验、不替你动手**的机器契约。`recon advise` 就是这个交接点：输入证据行，输出下一步动作，不联网、不发请求、不执行建议里的命令。
+Skill 给人读，CLI 给脚本调，Agent 需要一个**稳定、可校验、不替你动手**的机器契约。这里有两层：`recon agent` 是仓库自带的**有界探索循环**，负责把站点分析、路径发现与配额执行串起来；`recon advise` 是循环末端的**只读决策契约**，输入证据行，输出下一步动作，不联网、不发请求、不执行建议里的命令。
 
-## 循环
+## 默认 Agent：`recon agent`
+
+一条命令跑完“分析 → 探索 → 计划 → 执行 → 收敛”，不是常驻调度器：轮数、页面、请求都有上限，跑完就退出并给出停止原因。
+
+```
+站点分析（每 host 1 请求，robots 先行）→ crawl 第 1 轮 → 同站链接发现
+  → explore 计划 + frontier 增补 → crawl --plan → advise 收敛 → 停止原因
+```
+
+| 阶段 | 做什么 | 护栏 |
+|---|---|---|
+| 站点分析 | 每个 host 取一个种子判形态 | 每 host 1 请求；robots 不允许则零请求；挑战页 / 登录墙 / 链路失败 / 错误页只记录，不再请求 |
+| 探索 | `crawl` 多臂选举，产出证据行与试验行 | 沿用 `--max-pages` / `--max-requests` / 节流 / 熔断 / 限频冷却 / 会话 |
+| 路径发现 | 从本轮留存 HTML 提同站链接，跳过静态资源 | 只保留种子 host；`--max-discovered` 封顶；不额外发请求 |
+| 规划 | `explore` 把试验行变成配额计划，`augment` 补新路由类 | 新路由按“不同 URL 数 × 每条臂一次”给额度，总额受剩余请求数封顶 |
+| 执行 | `crawl --plan` 按配额跑下一轮 | 计划外路由零请求；页面记 `plan-exhausted` |
+| 收敛 | `advise` 给下一步；终态动作与安全信号立即停 | 轮数、页面、请求三重上限 |
+
+产物全部写进 `--out`：`evidence.jsonl` / `trials.jsonl`（跨轮累计）、`r<N>-evidence.jsonl` / `r<N>-trials.jsonl` / `r<N>-urls.txt`（单轮）、`plan.json`、`policy.json`、`bodies/`（`--discover` 时）与 `agent.json`。
+
+`agent.json` 契约 `agent/1`：`seeds` / `out` / `budget`（上限与用量）/ `analysis`（逐 host 形态、robots、下一步）/ `rounds`（每轮 crawl 摘要、计划、发现数、建议动作）/ `advice`（最后一轮 `advise/1`）/ `stop` / `artifacts`。
+
+| `stop.kind` | 含义 | 退出码 |
+|---|---|---|
+| `goal` | 可归因样本都已拿到内容，转防回归 | 0 |
+| `business` | 多数失败是鉴权 / 路由 / 抽取口径，继续探测无收益 | 0 |
+| `noise` | 可归因样本为 0，全是链路或 5xx | 0 |
+| `rate-limit` | 被拦样本过半是限频信号 | 0 |
+| `max-rounds` / `budget` | 轮数或请求 / 页面预算用尽 | 0 |
+| `frontier-empty` / `plan-empty` | 没有可继续的 URL，或计划没有剩余动作 | 0 |
+| `analysis-gated` | 所有种子都被形态或 robots 拦下 | 0 |
+| `safety` | 限频冷却、熔断或全臂暂停 | 1 |
+| `config` | 没有可用客户端臂 | 1 |
+| `crawl-error` | crawl 超时或输出不可解析 | 1 |
+
+常用选项：`--out`（必填）、`--max-rounds 2`、`--max-pages 20`、`--max-requests 40`、`--budget 12`、`--discover/--no-discover`、`--max-discovered 20`；其余采集参数与 `crawl` 同名同义。`--i-have-permission` 只跳过 robots 检查，不改变节流、熔断与限频。退出码 `0` 表示在护栏内跑完（含预算 / 轮数 / 终态建议 / 合规拦下），`1` 表示安全或配置原因停手，`2` 是用法错误。
+
+`recon agent` 只调用已存在的 `shape` / `crawl` / `explore` / `advise`，不自己发请求，也不新增绕过手段：不求解验证码、不轮换出口、不绕过登录或付费墙。要改判定，改 `reconlib/` 里的规则或 `advise` 动作表；不要在 Agent 里另写一份度量或归类。
+
+## advise 循环
 
 ```
 采集（fetch / crawl）──► 证据行 ──► 结算（stats）──► 建议（advise）──► 人 / Agent 执行 ──┐

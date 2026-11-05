@@ -30,7 +30,8 @@
  26. 会话状态：按臂/按 host 隔离、0600、关闭即清，采集入口默认开启而 canary 不持有
  27. 限频联合决策：连续限频进入 host 冷却、冷却期不发请求、限频样本不进选臂统计
  28. 计划执行：探索计划按 host+路由类配额执行，计划外路由零请求
- 29. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
+ 29. 默认 Agent：形态门槛、frontier 增补、有界停止，agent/1 只编排已有原子
+ 30. 加 --tests 时实跑 tests/ 全量（CI 另起一步；本地发布前建议也跑）
 
 退出码：0 通过，1 有问题。
 """
@@ -104,6 +105,7 @@ REQUIRED = [
     "scripts/bandit.py",
     "scripts/explore.py",
     "scripts/advise.py",
+    "scripts/agent.py",
     "scripts/reconlib/__init__.py",
     "scripts/reconlib/measure.py",
     "scripts/reconlib/classify.py",
@@ -118,6 +120,8 @@ REQUIRED = [
     "scripts/reconlib/simulate.py",
     "scripts/reconlib/advice.py",
     "scripts/reconlib/arms.py",
+    "scripts/reconlib/discover.py",
+    "scripts/reconlib/agent.py",
     "scripts/reconlib/render.py",
     "scripts/reconlib/session.py",
     "scripts/reconlib/cookies.py",
@@ -151,6 +155,7 @@ REQUIRED = [
     "tests/test_cookies.py",
     "tests/test_rate_limit.py",
     "tests/test_plan_exec.py",
+    "tests/test_agent.py",
     "tests/test_quick.py",
     "tests/test_matrix.py",
     "tests/test_explore.py",
@@ -1137,6 +1142,82 @@ for bad in ([], {}, {"schema": "recon-policy/1", "steps": []},
     ok("计划执行：配额按 host+路由类聚合、计划外/用尽零请求，explore 与 crawl 已闭环")
 
 
+def check_agent_loop():
+    """默认 Agent 只编排已有原子：形态门槛、frontier 增补、有界停止。"""
+    code = """
+import sys
+sys.path.insert(0, "scripts")
+from reconlib import agent, discover
+
+html = b'''<a href="/article/1">1</a>
+<a href="https://h/a/2#frag">2</a>
+<a href="/img/x.png">img</a>
+<a href="https://other/x">out</a>
+<a href="mailto:a@b">mail</a>
+<a href="/article/1">dup</a>'''
+links = discover.links(html, "https://h/list/", hosts=["h"], max_links=10)
+assert links == ["https://h/article/1", "https://h/a/2"], links
+assert discover.links(html, "https://h/list/", hosts=["h"], max_links=1) == [
+    "https://h/article/1"]
+
+assert agent.decide({"next": {"action": "check-routing"}}, 5, 2, 3, True)["kind"] == "business"
+assert agent.decide({"next": {"action": "maintain"}}, 5, 2, 3, True)["run"] is False
+assert agent.decide({"next": {"action": "maintain"}}, 5, 2, 3, True,
+                    frontier=2)["run"] is True
+assert agent.decide({"next": {"action": "collect-more"}}, 0, 2, 3, True)["kind"] == "budget"
+assert agent.decide({"next": {"action": "collect-more"}}, 5, 0, 3, True)["kind"] == "max-rounds"
+assert agent.decide({"next": {"action": "differentiate"}}, 5, 2, 0, True)["kind"] == "plan-empty"
+assert agent.decide({"next": {"action": "collect-more"}}, 5, 2, 3, False)["kind"] == "frontier-empty"
+assert agent.safety_stop({"stopped": "rate-limit-cooldown"})["kind"] == "safety"
+assert agent.safety_stop({"stopped": "circuit-open"})["kind"] == "safety"
+assert agent.safety_stop({"stopped": "ok", "suspended_pages": 2})["kind"] == "safety"
+assert agent.safety_stop({"stopped": "ok"}) is None
+
+plan = {"schema": "recon-explore/1", "steps": [
+    {"context": "h|article|unknown", "arm": "native", "requests": 1}]}
+body = agent.augment(plan, ["https://h/api/x", "https://h/api/y",
+                            "https://h/article/9"],
+                     ["native", "browser:chromium"], per_url=1)
+assert len(plan["steps"]) == 1 and "frontier" not in plan, "augment 不应修改入参"
+assert body["frontier"] == {"routes": 1, "steps": 2, "requests": 4}, body["frontier"]
+assert {s["context"] for s in body["steps"]} == {
+    "h|article|unknown", "h|api|unknown"}
+capped = agent.augment({}, ["https://h/api/x"], ["native", "cffi:chrome"],
+                       per_url=2, max_requests=3)
+assert capped["frontier"]["requests"] in (0, 2), capped["frontier"]
+"""
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, cwd=ROOT)
+    if r.returncode != 0:
+        tail = (r.stderr or r.stdout).strip().splitlines()[-3:]
+        fail("Agent 决策契约异常: " + " | ".join(tail))
+        return
+
+    cli = read("scripts/agent.py")
+    for needle in ("robots.decision", "shape.fetch", "shape.classify",
+                   "run_script(EXPLORE", "run_script(CRAWL", '"--plan"',
+                   '"--i-have-permission"', "plan_exhausted_pages"):
+        if needle not in cli:
+            fail(f"agent 缺少编排接入: {needle}")
+            return
+    if "urlopen" in cli or "urllib.request" in cli:
+        fail("agent 只应编排 crawl/explore，不应自己发请求")
+        return
+    if '"agent"' not in read("scripts/recon.py"):
+        fail("recon 入口未接入 agent")
+        return
+    try:
+        r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "agent.py"),
+                            "--help"], capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        fail("agent --help 超时")
+        return
+    if r.returncode != 0:
+        fail("agent --help 失败: " + (r.stderr or r.stdout).strip()[-200:])
+        return
+    ok("默认 Agent：形态门槛 + frontier 增补 + 有界停止，只编排 crawl/explore")
+
+
 def check_explore_planner():
     """探索规划是只读层：不发请求、预算封顶、同输入可复现。"""
     code = """
@@ -1435,6 +1516,7 @@ def main():
     check_cookie_sessions()
     check_rate_limit_guard()
     check_plan_execution()
+    check_agent_loop()
     check_explore_planner()
     check_crawl_guard()
     check_bandit_smoke()
