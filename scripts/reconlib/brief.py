@@ -89,3 +89,71 @@ def gaps_of(profile, overall):
     if not (overall or {}).get("n"):
         gaps.append("没有证据行：任何结论都是假设")
     return gaps[:3]
+
+
+def _worst_first(group):
+    access = group["access"]["rate"]
+    complete = group["complete"]["rate"]
+    return (-1 if access is None else access,
+            -1 if complete is None else complete,
+            group["route"])
+
+
+def compose(advice_body, summary, profile, extras, doc_chars):
+    """把原子层结果拼成简报信息体；不含 digest / budget / truncated。"""
+    raw_evidence = advice_body["evidence"]
+    evidence = {
+        "n": raw_evidence["n"],
+        "noise_excluded_n": raw_evidence["noise_excluded_n"],
+        "routes": raw_evidence["routes"],
+        "outcomes": dict(raw_evidence["outcomes"]),
+        "arms": sorted(raw_evidence.get("arms") or []),
+        "contexts": dict(sorted((raw_evidence.get("contexts") or {}).items())),
+    }
+    for key in ("trials", "policy", "agent"):
+        if extras.get(key) is not None:
+            evidence[key] = extras[key]
+
+    nxt = advice_body["next"]
+    verdict = {
+        "action": nxt["action"],
+        "layer": nxt["layer"],
+        "countermeasure": nxt["countermeasure"],
+        "confidence": nxt["confidence"],
+        "why": nxt["why"],
+        "commands": list(nxt.get("commands") or []),
+        "stop": list(nxt.get("stop") or []),
+    }
+
+    overall = summary["overall"]
+    metrics = {
+        "overall": {
+            "n": overall["n"],
+            "access_rate": overall["access"]["rate"],
+            "access_ci": overall["access"]["ci95"],
+            "complete_rate": overall["complete"]["rate"],
+            "complete_ci": overall["complete"]["ci95"],
+        },
+        "routes": [
+            {"route": group["route"], "n": group["n"],
+             "access_rate": group["access"]["rate"],
+             "complete_rate": group["complete"]["rate"]}
+            for group in sorted(summary["groups"], key=_worst_first)
+        ],
+    }
+
+    reads = []
+    for name, why in DOC_READS.get(verdict["action"], []):
+        chars = int(doc_chars(name) or 0)
+        if chars:
+            reads.append({"path": f"references/{name}", "chars": chars, "why": why})
+    return {
+        "verdict": verdict,
+        "evidence": evidence,
+        "metrics": metrics,
+        "gates": gates_of(profile),
+        "gaps": gaps_of(profile, overall),
+        "next_reads": reads[:2],
+        "artifacts": dict(extras.get("artifacts") or {}),
+    }
+

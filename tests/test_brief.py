@@ -70,5 +70,83 @@ class GapsTest(unittest.TestCase):
         self.assertEqual(gaps, ["没有证据行：任何结论都是假设"])
 
 
+ADVICE = {
+    "evidence": {
+        "n": 8, "routes": 3,
+        "outcomes": {"ok": 4, "degraded": 2, "blocked": 1,
+                     "auth": 0, "missing": 0, "noise": 1},
+        "noise_excluded_n": 7,
+        "arms": ["native", "cffi:chrome"],
+        "contexts": {"b.example|list|content": 2, "a.example|article|challenge": 6},
+    },
+    "findings": [{"code": "blocked", "count": 1, "message": "出现被拦截样本"}],
+    "next": {
+        "action": "switch-arm", "layer": "L2", "countermeasure": "S2",
+        "why": "有臂成功、有臂被拦", "confidence": "assumed",
+        "commands": ["recon fetch <url> --arms cffi:chrome"],
+        "stop": ["两臂各 3 次仍无差异就停"],
+    },
+}
+
+SUMMARY = {
+    "overall": {"n": 8, "access": {"rate": 0.857, "ci95": [0.487, 0.974]},
+                "complete": {"rate": 0.667, "ci95": [0.3, 0.903]}},
+    "groups": [
+        {"route": "/article/1", "n": 3, "access": {"rate": 1.0}, "complete": {"rate": 1.0}},
+        {"route": "/article/2", "n": 3, "access": {"rate": 1.0}, "complete": {"rate": 0.333}},
+        {"route": "/article/3", "n": 2, "access": {"rate": 0.0}, "complete": {"rate": None}},
+    ],
+}
+
+
+def doc_chars(name):
+    return 8100 if name == "strategy.md" else (2990 if name == "arms.md" else 0)
+
+
+class ComposeTest(unittest.TestCase):
+    def compose(self, profile=None, extras=None):
+        return brief.compose(
+            ADVICE, SUMMARY, profile,
+            extras or {"artifacts": {"profile": "profile.yaml", "evidence": "evidence.jsonl"}},
+            doc_chars)
+
+    def test_routes_worst_first_and_null_is_worst(self):
+        body = self.compose()
+        self.assertEqual([r["route"] for r in body["metrics"]["routes"]],
+                         ["/article/3", "/article/2", "/article/1"])
+        self.assertEqual(body["metrics"]["routes"][0]["complete_rate"], None)
+
+    def test_verdict_is_verbatim_advice(self):
+        self.assertEqual(self.compose()["verdict"]["action"], "switch-arm")
+        self.assertEqual(self.compose()["verdict"]["confidence"], "assumed")
+        self.assertEqual(self.compose()["verdict"]["commands"],
+                         ["recon fetch <url> --arms cffi:chrome"])
+
+    def test_evidence_sorted_for_order_independence(self):
+        ev = self.compose()["evidence"]
+        self.assertEqual(ev["arms"], ["cffi:chrome", "native"])
+        self.assertEqual(list(ev["contexts"]),
+                         ["a.example|article|challenge", "b.example|list|content"])
+
+    def test_next_reads_follow_action_and_cost(self):
+        reads = self.compose()["next_reads"]
+        self.assertEqual([r["path"] for r in reads],
+                         ["references/strategy.md", "references/arms.md"])
+        self.assertEqual([r["chars"] for r in reads], [8100, 2990])
+
+    def test_unknown_action_yields_no_reads(self):
+        advice_body = json.loads(json.dumps(ADVICE))
+        advice_body["next"]["action"] = "brand-new-action"
+        body = brief.compose(advice_body, SUMMARY, None, {"artifacts": {}}, doc_chars)
+        self.assertEqual(body["next_reads"], [])
+
+    def test_metrics_overall_shape(self):
+        overall = self.compose()["metrics"]["overall"]
+        self.assertEqual(overall, {"n": 8, "access_rate": 0.857,
+                                   "access_ci": [0.487, 0.974],
+                                   "complete_rate": 0.667,
+                                   "complete_ci": [0.3, 0.903]})
+
+
 if __name__ == "__main__":
     unittest.main()
