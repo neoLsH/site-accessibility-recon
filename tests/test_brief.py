@@ -244,5 +244,145 @@ class RenderTest(unittest.TestCase):
         self.assertNotIn("switch-arm", text)
 
 
+def copy_example():
+    d = tempfile.mkdtemp(prefix="recon-brief-")
+    for name in ("profile.yaml", "evidence.jsonl", "trials.jsonl"):
+        src = os.path.join(EXAMPLE_DIR, name)
+        if os.path.isfile(src):
+            shutil.copy(src, os.path.join(d, name))
+    return d
+
+
+class BriefCliTest(unittest.TestCase):
+    def workspace(self, files=None):
+        d = copy_example() if files is None else make(files)
+        self.addCleanup(shutil.rmtree, d, True)
+        return d
+
+    def test_empty_workspace(self):
+        r, data = support.run_json("brief", self.workspace({}), "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(data["verdict"]["action"], "collect-more")
+        self.assertFalse(data["truncated"])
+        self.assertTrue(data["digest"].startswith("sha256:"))
+        self.assertIn("缺 profile.yaml：没有闸门图与口径", data["gaps"])
+
+    def test_example_matches_stats_and_routing(self):
+        ws = self.workspace()
+        r, data = support.run_json("brief", ws, "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        _, stats_body = support.run_json(
+            "stats", os.path.join(ws, "evidence.jsonl"), "--json")
+        self.assertEqual(data["metrics"]["overall"]["access_rate"],
+                         stats_body["overall"]["access"]["rate"])
+        self.assertEqual(data["metrics"]["overall"]["complete_rate"],
+                         stats_body["overall"]["complete"]["rate"])
+        self.assertEqual(data["next_reads"][0]["path"], "references/evidence-matrix.md")
+        self.assertEqual(data["artifacts"]["profile"], "profile.yaml")
+
+    def test_byte_stable_across_runs(self):
+        ws = self.workspace()
+        first = support.run("brief", ws, "--json")
+        second = support.run("brief", ws, "--json")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(first.stdout, second.stdout)
+
+    def test_row_order_irrelevant(self):
+        ws = self.workspace()
+        with open(os.path.join(EXAMPLE_DIR, "evidence.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(line) for line in f if line.strip()]
+        with open(os.path.join(EXAMPLE_DIR, "profile.yaml"), encoding="utf-8") as f:
+            profile_text = f.read()
+        with open(os.path.join(EXAMPLE_DIR, "trials.jsonl"), encoding="utf-8") as f:
+            trials_text = f.read()
+        reversed_ws = self.workspace({
+            "profile.yaml": profile_text,
+            "trials.jsonl": trials_text,
+            "evidence.jsonl": "".join(json.dumps(row, ensure_ascii=False) + "\n"
+                                      for row in reversed(rows)),
+        })
+        _, a = support.run_json("brief", ws, "--json")
+        _, b = support.run_json("brief", reversed_ws, "--json")
+        self.assertEqual(a["digest"], b["digest"])
+        self.assertEqual(a["verdict"], b["verdict"])
+        self.assertEqual(a["metrics"], b["metrics"])
+
+    def test_semantic_change_changes_digest(self):
+        ws = self.workspace()
+        _, before = support.run_json("brief", ws, "--json")
+        path = os.path.join(ws, "evidence.jsonl")
+        with open(path, encoding="utf-8") as f:
+            lines = [json.loads(line) for line in f if line.strip()]
+        for row in lines:
+            if row.get("outcome") == "ok":
+                row["outcome"] = "blocked"
+                break
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in lines))
+        _, after = support.run_json("brief", ws, "--json")
+        self.assertNotEqual(before["digest"], after["digest"])
+
+    def test_volatile_field_ignored(self):
+        ws = self.workspace()
+        _, before = support.run_json("brief", ws, "--json")
+        path = os.path.join(ws, "evidence.jsonl")
+        with open(path, encoding="utf-8") as f:
+            lines = [json.loads(line) for line in f if line.strip()]
+        lines[0]["elapsed_ms"] = 123456
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in lines))
+        _, after = support.run_json("brief", ws, "--json")
+        self.assertEqual(before["digest"], after["digest"])
+
+    def test_budget_trimming(self):
+        ws = self.workspace()
+        _, full = support.run_json("brief", ws, "--json", "--budget", "4000")
+        used = full["budget"]["used"]
+        _, tight = support.run_json("brief", ws, "--json", "--budget", str(used - 1))
+        self.assertFalse(tight["truncated"])
+        self.assertLessEqual(tight["budget"]["used"], used - 1)
+        self.assertTrue(tight["budget"]["dropped"])
+        self.assertEqual(full["digest"], tight["digest"])
+
+    def test_tiny_budget_truncated(self):
+        _, data = support.run_json("brief", self.workspace(), "--json", "--budget", "200")
+        self.assertTrue(data["truncated"])
+        self.assertEqual(data["verdict"]["action"], "collect-more")
+
+    def test_expect_digest_hit(self):
+        ws = self.workspace()
+        _, full = support.run_json("brief", ws, "--json")
+        r, hit = support.run_json("brief", ws, "--json",
+                                  "--expect-digest", full["digest"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(hit["cache"]["hit"])
+        self.assertNotIn("verdict", hit)
+        self.assertLessEqual(len(r.stdout), 200)
+
+    def test_expect_digest_miss(self):
+        _, data = support.run_json("brief", self.workspace(), "--json",
+                                   "--expect-digest", "sha256:" + "0" * 64)
+        self.assertFalse(data["cache"]["hit"])
+        self.assertIn("verdict", data)
+
+    def test_bad_inputs(self):
+        r = support.run("brief", "/nonexistent-workspace", "--json")
+        self.assertEqual(r.returncode, 2)
+        ws = self.workspace({"evidence.jsonl": json.dumps(
+            {"kind": "trial", "trial_outcome": "ok"}) + "\n"})
+        self.assertEqual(support.run("brief", ws, "--json").returncode, 2)
+        self.assertEqual(support.run("brief", self.workspace({}), "--budget", "199").returncode, 2)
+
+    def test_profile_without_gates(self):
+        with open(os.path.join(EXAMPLE_DIR, "evidence.jsonl"), encoding="utf-8") as f:
+            evidence_text = f.read()
+        ws = self.workspace({"profile.yaml": "host: example.test\nconfidence: observed\n",
+                             "evidence.jsonl": evidence_text})
+        r, data = support.run_json("brief", ws, "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIsNone(data["gates"]["first_fail"])
+        self.assertEqual(data["gates"]["unknown"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
