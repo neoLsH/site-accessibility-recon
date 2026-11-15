@@ -1490,6 +1490,46 @@ def run_tests():
     ok(f"行为测试通过（{summary[0] if summary else 'rc=0'}）")
 
 
+def check_brief_smoke():
+    """brief 的门禁：预算内、字节稳定、digest 可复用。"""
+    example = os.path.join(ROOT, "assets/example")
+    cmd = [sys.executable, os.path.join(ROOT, "scripts/recon.py"), "brief", example, "--json"]
+    first = subprocess.run(cmd, capture_output=True, text=True)
+    if first.returncode != 0:
+        fail(f"brief 入口异常: {(first.stderr or first.stdout).strip()[:200]}")
+        return
+    try:
+        body = json.loads(first.stdout)
+    except ValueError:
+        fail("brief --json 不是合法 JSON")
+        return
+    used = (body.get("budget") or {}).get("used")
+    if body.get("schema") != "brief/1" or not str(body.get("digest", "")).startswith("sha256:"):
+        fail(f"brief 契约字段异常: schema={body.get('schema')!r}")
+        return
+    if used is None or used > (body.get("budget") or {}).get("limit", 0):
+        fail(f"brief 超出预算: used={used} limit={(body.get('budget') or {}).get('limit')}")
+        return
+    if len(body["digest"]) != len("sha256:") + 64:
+        fail(f"brief digest 长度异常: {body['digest']!r}")
+        return
+    second = subprocess.run(cmd, capture_output=True, text=True)
+    if second.stdout != first.stdout:
+        fail("brief 两次运行输出不一致（字节稳定性被破坏）")
+        return
+    hit = subprocess.run(cmd + ["--expect-digest", body["digest"]],
+                         capture_output=True, text=True)
+    try:
+        hit_body = json.loads(hit.stdout)
+    except ValueError:
+        fail("brief --expect-digest 输出不是合法 JSON")
+        return
+    if not (hit_body.get("cache") or {}).get("hit") or "verdict" in hit_body:
+        fail("brief --expect-digest 未短路")
+        return
+    ok(f"brief 有界且可复用（used={used}，digest 稳定）")
+
+
 def main():
     check_structure()
     check_workspace_ignore()
@@ -1521,6 +1561,7 @@ def main():
     check_crawl_guard()
     check_bandit_smoke()
     check_advice_smoke()
+    check_brief_smoke()
     check_tests()
     if "--tests" in sys.argv[1:]:
         run_tests()

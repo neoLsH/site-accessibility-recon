@@ -1197,14 +1197,14 @@ git -c user.name=neoLsH -c user.email=43921685+neoLsH@users.noreply.github.com c
 2. 「按需加载」表：把现有两行合并为一行（省 1 行）：
 
 ```markdown
-| 跑默认探索 Agent，或把证据行接给 LLM / Agent | [references/agent.md](references/agent.md) |
+| 跑默认探索 Agent，或把证据行接给 LLM / Agent | [references/agent.md](../../../references/agent.md) |
 ```
 
 替换原来的「跑默认探索 Agent…」与「接 Agent / LLM…」两行。
 3. 同一张表新增一行：
 
 ```markdown
-| 想知道这一轮该读多少、和上一轮比变没变 | `recon brief`：有界、可复用的上下文包（[references/agent.md](references/agent.md)） |
+| 想知道这一轮该读多少、和上一轮比变没变 | `recon brief`：有界、可复用的上下文包（[references/agent.md](../../../references/agent.md)） |
 ```
 
 4. 「常用脚本」代码块新增一行（放在 `recon advise` 之后）：
@@ -1224,7 +1224,7 @@ scripts/recon.py brief recon/<代号> --json      # 有界上下文包（brief/1
 「按需读取」列表 `advise` 那条之前加：
 
 ```markdown
-- 上下文预算：工作区 → 有界、可复用的简报与复用循环：[references/agent.md](references/agent.md)
+- 上下文预算：工作区 → 有界、可复用的简报与复用循环：[references/agent.md](../../../references/agent.md)
 ```
 
 - [ ] **Step 3: `references/cli.md`**
