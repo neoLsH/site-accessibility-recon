@@ -33,6 +33,7 @@ scripts/crawl.py --from urls.txt --selector '#content' \
     --policy-out recon/<代号>/policy.json \
     --trial-out recon/<代号>/trials.jsonl
 scripts/explore.py --trials recon/<代号>/trials.jsonl --budget 30   # 只读：下一批探测预算
+scripts/brief.py recon/<代号> --json                  # 有界上下文包；下一轮用 --expect-digest 复用
 scripts/report.py --profile recon/<代号>/profile.yaml --out recon/<代号>/report.md
 ```
 

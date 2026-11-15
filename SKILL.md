@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 python3 与 curl；建议另装 curl_cffi 做浏览器级 TLS 指纹仿真。要让脚本真正联网，还需要能出网的出口；断网时自动降级为离线复核（只分析已留存的 HTML 与快照）。
 allowed-tools: Bash, Read, Write, Edit, WebFetch, Task
 metadata:
-  version: 1.22.0
+  version: 1.23.0
   scope: diagnostics
 ---
 
@@ -98,10 +98,9 @@ P1 推迟时必须写明推迟原因与已覆盖的样本范围，否则双指�
 | 选臂上下文、奖励与成本、安全探索、会话状态、各能力点的选臂语义 | [references/strategy.md](references/strategy.md) · [references/sessions.md](references/sessions.md) |
 | 离线推演换策略值不值；把后验变成下一批探测、预算怎么分 | [references/bandit.md](references/bandit.md) · [references/explore.md](references/explore.md) |
 | 四种形态怎么分工（Skill / CLI / Agent / LLM） | [references/forms.md](references/forms.md) |
-| 跑默认探索 Agent：形态门槛、路径发现、frontier 增补、有界停止 | [references/agent.md](references/agent.md) |
-| 接 Agent / LLM：证据行 → 下一步动作（契约、提示骨架、护栏） | [references/agent.md](references/agent.md) |
-| 第一次跑，想跟着走一遍完整链路 | [references/walkthrough.md](references/walkthrough.md) |
-| 先装环境、知道用哪个工具、别踩版本坑 | [references/toolbox.md](references/toolbox.md) |
+| 跑默认探索 Agent，或把证据行接给 LLM / Agent | [references/agent.md](references/agent.md) |
+| 想知道这一轮该读多少、和上一轮比变没变 | `recon brief`：有界、可复用的上下文包（[references/agent.md](references/agent.md)） |
+| 第一次跑想走一遍完整链路；或先装环境、避开版本坑 | [references/walkthrough.md](references/walkthrough.md) · [references/toolbox.md](references/toolbox.md) |
 | 做指纹分析（采集 / 自洽 / 差分 / 归因） | [references/fingerprint-methods.md](references/fingerprint-methods.md) |
 | 交付前自查：常见误判、这次诊断站不站得住 | [references/anti-patterns.md](references/anti-patterns.md) · [references/review-scorecard.md](references/review-scorecard.md) |
 | 看真实案例的推理链 | [references/cases/](references/cases/) |
@@ -126,6 +125,7 @@ recon bandit --arms native=0.4,cffi:chrome=0.75      # 离线推演；--rates-js
 recon explore --trials recon/<代号>/trials.jsonl --budget 30  # 只读：下一批探测
 recon agent <url> --out recon/<代号>                 # 默认 Agent：分析 → 探索 → 计划 → 配额执行
 recon advise recon/<代号>/evidence.jsonl --json      # 证据行 → 下一步动作（Agent / LLM 契约）
+recon brief recon/<代号> --budget 1200          # 有界上下文包；--expect-digest 命中即复用
 ```
 
 `scripts/fingerprint-probe.js` 直接在浏览器页面里跑，不走 `recon` 入口。

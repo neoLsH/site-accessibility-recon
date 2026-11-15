@@ -60,6 +60,7 @@
 - 批量采集（多臂选举 / 预算护栏 / 证据行与试验行）：[references/crawl.md](references/crawl.md)
 - 离线推演（给定胜率比较选举策略）：[references/bandit.md](references/bandit.md)
 - 探索规划（后验 → 下一批探测预算）与按配额执行（`crawl --plan`）：[references/explore.md](references/explore.md)
+- 上下文预算：工作区 → 有界、可复用的简报与复用循环：[references/agent.md](references/agent.md)
 - 默认探索 Agent（有界循环、`agent/1`、停止原因）与 LLM 接口（`advise/1` 契约、动作优先级、提示骨架与护栏）：[references/agent.md](references/agent.md)
 - 四种形态（Skill / CLI / Agent / LLM）的分工、共享契约与扩展方式：[references/forms.md](references/forms.md)
 - 端到端走查（本地示例站，不碰真实目标）：[references/walkthrough.md](references/walkthrough.md)
@@ -97,6 +98,7 @@ scripts/recon.py bandit --rates-json recon/<代号>/rates.json      # 按上下�
 scripts/recon.py bandit --policy-in recon/<代号>/policy.json      # 用上一轮策略档案推演
 scripts/recon.py explore --trials recon/<代号>/trials.jsonl --budget 30  # 只读：下一批探测预算
 scripts/recon.py advise recon/<代号>/evidence.jsonl --json        # 证据行 → 下一步动作（只读，不执行）
+scripts/recon.py brief recon/<代号> --json      # 有界上下文包（brief/1），可带 --expect-digest 复用
 scripts/recon.py agent <url> --out recon/<代号>                  # 默认 Agent：分析 → 探索 → 计划 → 配额执行（有界）
 scripts/recon.py surface <url>                                  # 站点 JS 采集面：采了什么、往哪上报
 scripts/recon.py plan recon/<代号>/profile.yaml                  # 档案 lint + 执行计划
