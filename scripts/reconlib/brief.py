@@ -157,3 +157,34 @@ def compose(advice_body, summary, profile, extras, doc_chars):
         "artifacts": dict(extras.get("artifacts") or {}),
     }
 
+
+def json_chars(obj):
+    """预算口径：JSON 缩进序列化的字符数（与 CLI 实际输出一致）。"""
+    return len(json.dumps(obj, ensure_ascii=False, indent=2))
+
+
+def digest_of(body):
+    """对未裁剪信息体取指纹；不含 budget / cache / digest 自身。"""
+    payload = json.dumps(body, sort_keys=True, ensure_ascii=False,
+                         separators=(",", ":"))
+    raw = (LOGIC_VERSION + "\n" + payload).encode("utf-8")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def finalize(body, budget):
+    """返回 brief/1 对象：digest + 裁剪后的信息体 + budget + truncated。"""
+    digest = digest_of(body)
+    view, dropped, truncated = trim(body, budget)
+    used = json_chars(view)
+    out = {"schema": SCHEMA, "command": "brief", "ok": True, "digest": digest}
+    out.update(view)
+    out["budget"] = {"limit": budget, "used": used, "dropped": dropped,
+                     "tokens_est": estimate_tokens(json.dumps(view, ensure_ascii=False, indent=2))}
+    out["truncated"] = truncated
+    return out
+
+
+def trim(body, budget):
+    view = json.loads(json.dumps(body, ensure_ascii=False))
+    return view, [], json_chars(view) > budget
+

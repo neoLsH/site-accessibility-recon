@@ -148,5 +148,39 @@ class ComposeTest(unittest.TestCase):
                                    "complete_ci": [0.3, 0.903]})
 
 
+class DigestTest(unittest.TestCase):
+    def body(self):
+        return brief.compose(ADVICE, SUMMARY, {"gates": []},
+                             {"artifacts": {"profile": "profile.yaml"}}, doc_chars)
+
+    def test_digest_format_and_stability(self):
+        first = brief.digest_of(self.body())
+        second = brief.digest_of(self.body())
+        self.assertTrue(first.startswith("sha256:"))
+        self.assertEqual(len(first), len("sha256:") + 64)
+        self.assertEqual(first, second)
+
+    def test_semantics_change_digest(self):
+        changed = self.body()
+        changed["evidence"]["outcomes"]["ok"] = 3
+        self.assertNotEqual(brief.digest_of(self.body()), brief.digest_of(changed))
+
+    def test_budget_does_not_change_digest(self):
+        body = self.body()
+        small = brief.finalize(body, 700)
+        big = brief.finalize(body, 4000)
+        self.assertEqual(small["digest"], big["digest"])
+
+    def test_finalize_shape(self):
+        out = brief.finalize(self.body(), 4000)
+        self.assertEqual(out["schema"], "brief/1")
+        self.assertEqual(out["command"], "brief")
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["budget"]["limit"], 4000)
+        self.assertEqual(out["budget"]["dropped"], [])
+        self.assertFalse(out["truncated"])
+        self.assertGreater(out["budget"]["tokens_est"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
