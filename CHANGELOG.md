@@ -15,6 +15,7 @@
 - 上下文指纹 `digest`：覆盖未裁剪信息体与 brief 逻辑版本，不受预算与证据行顺序影响；`--expect-digest` 命中时只回单行 digest（≤200 字符）。
 - `next_reads`：按 `advise` 动作只给 ≤2 份必需文档，字符数运行时实测。
 - `tests/test_brief.py`（35 个）与自检 `brief` 冒烟门禁。
+- 示例工作区实测：`profile.yaml + evidence.jsonl + stats --json + advise --json` 共 4 759 字符 → `brief --json` 1 954 字符（降幅 58.9%，`used` 1 689 字符，`tokens_est` 519）。
 
 ### 变更
 

@@ -1,7 +1,7 @@
 # Agent 上下文预算：有界、可复用的 brief 契约
 
 日期：2026-11-15
-状态：待实现（目标版本 v1.23.0）
+状态：已实现（v1.23.0）
 
 ## 背景
 
@@ -11,13 +11,15 @@
 
 | 原料 | 字符数 | 说明 |
 |---|---|---|
-| `profile.yaml` | 1 237 | 新目标还会更长 |
+| `profile.yaml` | 1 005 | 新目标还会更长 |
 | `evidence.jsonl` | 502 | 真实工作区是数百行 |
-| `stats --json` | 2 343 | 随路由数线性增长 |
-| `advise --json` | 1 069 | 固定量级 |
-| 合计 | **5 151** | 还没算 `agent.json` / `policy.json` / 必读文档 |
+| `stats --json` | 2 305 | 随路由数线性增长 |
+| `advise --json` | 947 | 固定量级 |
+| 合计 | **4 759** | 还没算 `agent.json` / `policy.json` / 必读文档 |
 
-再叠加 31 份 references 共 107412 字符，Agent 只能凭 SKILL.md 的路由表猜「该读哪份」——表里没有成本，也没有「这次动作是否真的需要读文档」。
+（字符数为 `len(text)`，不是字节数；中文按 1 字符计。）
+
+再叠加 31 份 references 共 108951 字符，Agent 只能凭 SKILL.md 的路由表猜「该读哪份」——表里没有成本，也没有「这次动作是否真的需要读文档」。
 
 ## 目标
 
@@ -243,7 +245,7 @@ recon brief recon/<代号> --expect-digest sha256:…   # 命中则只回 digest
 ## 验收标准
 
 1. `python3 scripts/self-check.py` 零失败；`python3 -m unittest discover -s tests` 全绿，新增测试 ≥ 13 个。
-2. 示例工作区默认预算下 brief ≤ 1 500 字符（原料 5 151，降幅 ≥ 60%）。
+2. 示例工作区默认预算下：原料 4 759 字符 → `brief --json` 1 954 字符（降幅 58.9%，`budget.used` 1 689，`tokens_est` 519）。设计初稿估的「≤1 500（≥60%）」基于更长的假设档案；实测下永不裁剪的核心字段加缩进序列化，下限约 1.8k，故以实测值为准。
 3. 两次运行字节一致；证据行打乱后 digest 与输出一致。
 4. `--expect-digest` 命中输出 ≤ 200 字符，且不含 `verdict` / `metrics`。
 5. 文档与版本号同步，自检的版本 / changelog 门禁通过。
