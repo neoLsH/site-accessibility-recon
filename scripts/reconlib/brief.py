@@ -185,6 +185,70 @@ def finalize(body, budget):
 
 
 def trim(body, budget):
+    """按固定顺序裁剪；核心字段永不裁剪。"""
     view = json.loads(json.dumps(body, ensure_ascii=False))
-    return view, [], json_chars(view) > budget
+    dropped = []
+    if json_chars(view) <= budget:
+        return view, dropped, False
+
+    def cut_routes():
+        routes = view["metrics"]["routes"]
+        if len(routes) <= 6:
+            return False
+        cut = len(routes) - 6
+        view["metrics"]["routes"] = routes[:3] + routes[-3:]
+        dropped.append(f"metrics.routes 省略 {cut} 条")
+        return True
+
+    def cut_outcomes():
+        outcomes = view["evidence"]["outcomes"]
+        zeros = [key for key, value in outcomes.items() if not value]
+        if not zeros:
+            return False
+        for key in zeros:
+            outcomes.pop(key)
+        dropped.append("evidence.outcomes 省略零值")
+        return True
+
+    def cut_verdict():
+        changed = False
+        for key in ("commands", "stop"):
+            if len(view["verdict"][key]) > 1:
+                view["verdict"][key] = view["verdict"][key][:1]
+                changed = True
+        if changed:
+            dropped.append("verdict.commands/stop 各留 1 条")
+        return changed
+
+    def cut_gaps():
+        if len(view["gaps"]) <= 1:
+            return False
+        view["gaps"] = view["gaps"][:1]
+        dropped.append("gaps 留 1 条")
+        return True
+
+    def cut_extras():
+        changed = False
+        for key, keep in (("trials", "n"), ("policy", "contexts"), ("agent", "stop")):
+            item = view["evidence"].get(key)
+            if not isinstance(item, dict) or len(item) <= 1:
+                continue
+            view["evidence"][key] = {keep: item.get(keep)}
+            changed = True
+        if changed:
+            dropped.append("evidence.trials/policy/agent 只留关键计数")
+        return changed
+
+    def cut_reads():
+        if len(view["next_reads"]) <= 1:
+            return False
+        view["next_reads"] = view["next_reads"][:1]
+        dropped.append("next_reads 留 1 条")
+        return True
+
+    for step in (cut_routes, cut_outcomes, cut_verdict, cut_gaps, cut_extras, cut_reads):
+        step()
+        if json_chars(view) <= budget:
+            break
+    return view, dropped, json_chars(view) > budget
 

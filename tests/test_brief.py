@@ -182,5 +182,48 @@ class DigestTest(unittest.TestCase):
         self.assertGreater(out["budget"]["tokens_est"], 0)
 
 
+def twelve_route_body():
+    groups = [{"route": f"/p{i}", "n": 2,
+               "access": {"rate": 0.5}, "complete": {"rate": 0.5}} for i in range(12)]
+    groups[0]["access"]["rate"] = None
+    summary = {"overall": {"n": 24, "access": {"rate": 0.5, "ci95": [0.3, 0.7]},
+                           "complete": {"rate": 0.5, "ci95": [0.3, 0.7]}},
+               "groups": groups}
+    return brief.compose(ADVICE, summary, None, {"artifacts": {}}, doc_chars)
+
+
+class TrimTest(unittest.TestCase):
+    def test_trim_routes_and_keep_core(self):
+        body = twelve_route_body()
+        untrimmed = brief.json_chars(body)
+        view, dropped, truncated = brief.trim(body, untrimmed - 1)
+        self.assertFalse(truncated)
+        self.assertTrue(dropped)
+        self.assertLessEqual(brief.json_chars(view), untrimmed - 1)
+        self.assertEqual(len(view["metrics"]["routes"]), 6)
+        self.assertEqual(view["metrics"]["routes"][0]["route"], "/p0")
+        self.assertEqual(view["verdict"]["action"], "switch-arm")
+        self.assertEqual(view["evidence"]["n"], 8)
+
+    def test_tiny_budget_marks_truncated(self):
+        view, dropped, truncated = brief.trim(twelve_route_body(), 200)
+        self.assertTrue(truncated)
+        self.assertEqual(view["verdict"]["action"], "switch-arm")
+        self.assertIn("metrics.routes 省略 6 条", dropped)
+
+    def test_trim_is_deterministic(self):
+        body = twelve_route_body()
+        first = brief.trim(body, 800)
+        second = brief.trim(body, 800)
+        self.assertEqual(json.dumps(first, ensure_ascii=False),
+                         json.dumps(second, ensure_ascii=False))
+
+    def test_trim_removes_zero_outcomes_and_extra_reads(self):
+        view, dropped, _ = brief.trim(twelve_route_body(), 600)
+        self.assertNotIn("auth", view["evidence"]["outcomes"])
+        self.assertLessEqual(len(view["next_reads"]), 1)
+        self.assertTrue(any("outcomes" in item for item in dropped))
+
+
 if __name__ == "__main__":
     unittest.main()
