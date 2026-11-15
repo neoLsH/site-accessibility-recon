@@ -225,5 +225,24 @@ class TrimTest(unittest.TestCase):
         self.assertTrue(any("outcomes" in item for item in dropped))
 
 
+class RenderTest(unittest.TestCase):
+    def out(self):
+        return brief.finalize(twelve_route_body(), 4000)
+
+    def test_text_contains_decisions(self):
+        text = brief.render_text(self.out())
+        self.assertIn("switch-arm", text)
+        self.assertIn("L2 / S2", text)
+        self.assertIn("预算:", text)
+        self.assertIn("references/strategy.md", text)
+
+    def test_cache_hit_renders_short(self):
+        text = brief.render_text({"schema": "brief/1", "command": "brief",
+                                  "ok": True, "digest": "sha256:abc",
+                                  "cache": {"hit": True}})
+        self.assertIn("命中", text)
+        self.assertNotIn("switch-arm", text)
+
+
 if __name__ == "__main__":
     unittest.main()

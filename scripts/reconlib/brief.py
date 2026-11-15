@@ -252,3 +252,49 @@ def trim(body, budget):
             break
     return view, dropped, json_chars(view) > budget
 
+
+def _fmt(value):
+    return "n/a" if value is None else f"{value:.3f}"
+
+
+def _ci(pair):
+    if not pair or pair[0] is None:
+        return "ci n/a"
+    return f"ci {pair[0]:.3f}-{pair[1]:.3f}"
+
+
+def render_text(out):
+    if out.get("cache"):
+        return f"digest {out['digest']}\n复用: 命中，本轮无需重读"
+    verdict = out["verdict"]
+    evidence = out["evidence"]
+    overall = out["metrics"]["overall"]
+    lines = [f"digest {out['digest']}"]
+    lines.append(f"下一步: {verdict['action']}（{verdict['layer']} / "
+                 f"{verdict['countermeasure']}，置信度 {verdict['confidence']}）")
+    lines.append(f"为什么: {verdict['why']}")
+    lines.append(f"证据: {evidence['n']} 条，可归因 {evidence['noise_excluded_n']}；"
+                 + " ".join(f"{key}={value}" for key, value in evidence["outcomes"].items() if value))
+    lines.append(f"指标: 可访问 {_fmt(overall['access_rate'])} {_ci(overall['access_ci'])}，"
+                 f"完整 {_fmt(overall['complete_rate'])} {_ci(overall['complete_ci'])}")
+    for route in out["metrics"]["routes"][:6]:
+        lines.append(f"  {route['route']}: 可访问 {_fmt(route['access_rate'])} "
+                     f"完整 {_fmt(route['complete_rate'])}")
+    first = out["gates"]["first_fail"]
+    gate = f"{first['name']}（{first['layer']}）" if first else "无失败门"
+    lines.append(f"闸门: 最早失败 {gate}；pass={out['gates']['pass']} "
+                 f"fail={out['gates']['fail']} unknown={out['gates']['unknown']}")
+    if out["gaps"]:
+        lines.append("缺口: " + "；".join(out["gaps"]))
+    if out["next_reads"]:
+        lines.append("先读:")
+        for doc in out["next_reads"]:
+            lines.append(f"  {doc['path']}（{doc['chars']} 字符）— {doc['why']}")
+    if out["artifacts"]:
+        lines.append("产物: " + ", ".join(out["artifacts"].values()))
+    budget = out["budget"]
+    tail = "；已截断" if out["truncated"] else ""
+    lines.append(f"预算: {budget['used']}/{budget['limit']} 字符"
+                 f"（约 {budget['tokens_est']} tokens，estimate）{tail}")
+    return "\n".join(lines)
+
