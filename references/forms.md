@@ -15,6 +15,7 @@ reconlib 原子（度量 / 归类 / robots / 取样 / 节奏 / 证据 / 上下�
 | Skill | [SKILL.md](../SKILL.md) + `references/` | 流程、判据、案例与红线 | Agent 激活、人按需阅读 | 发请求、跑批 |
 | CLI | `scripts/recon.py <命令>` | 人读表；`--json` 单对象 | 脚本、CI、手工排查 | 自己决定下一步 |
 | Agent | `recon agent` / `recon advise --json` | `agent/1` 有界循环报告；`advise/1` 只读动作契约 | 一键探索与自动编排 | 常驻调度、绕过护栏 |
+| 上下文预算 | `brief`：工作区 → 有界、可复用的包 | `brief/1`；digest 复用 | 省上下文、跨轮比对 | 落盘缓存、改写计数 |
 | LLM | `advise/1` + 提示骨架 | 解释、路由排序、档案草稿 | 汇报与决策辅助 | 改写计数、下因果结论 |
 
 ## 同一条链路

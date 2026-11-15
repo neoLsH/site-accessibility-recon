@@ -4,6 +4,28 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.23.0] — 2026-11-15
+
+给 Agent 一个**有界、可复用**的上下文包：新增只读命令 `recon brief <工作区>`，把 profile / evidence / trials / policy / agent.json 收敛成 `brief/1`（`verdict` / `evidence` / `metrics` / `gates` / `gaps` / `next_reads` / `artifacts` / `budget`）。
+
+### 新增
+
+- `scripts/reconlib/brief.py`：`compose` / `digest_of` / `trim` / `finalize` / `estimate_tokens` / `render_text`，纯函数、无 IO；`verdict` 与 `evidence` 复用 `advice`，`metrics` 复用 `stats`，不重写计数。
+- `scripts/brief.py` 与 `recon brief` 子命令：文件发现、参数解析、输出；`--budget`（默认 2000、最小 200）、`--expect-digest`、`--json`。
+- 上下文指纹 `digest`：覆盖未裁剪信息体与 brief 逻辑版本，不受预算与证据行顺序影响；`--expect-digest` 命中时只回单行 digest（≤200 字符）。
+- `next_reads`：按 `advise` 动作只给 ≤2 份必需文档，字符数运行时实测。
+- `tests/test_brief.py`（35 个）与自检 `brief` 冒烟门禁。
+
+### 变更
+
+- `SKILL.md` 版本升到 1.23.0；`AGENTS.md`、`references/cli.md`、`references/agent.md`、`references/forms.md`、`assets/workspace/README.md`、`README.md` 同步。
+
+### 已知限制
+
+- `budget.used` 不含 `budget` 节，且 `tokens_est` 是启发式估算（CJK 1 token/字，其余 3.5 字符/token），只作量级参考，验收以字符数为准。
+- `gates.first_fail` 取档案书写顺序里的第一个 `fail`（模板按层序书写），不重新按 `layer` 排序。
+- 只发现约定的五个文件名；单轮 `r<N>-evidence.jsonl` 不参与。
+
 ## [1.22.0] — 2026-11-05
 
 把探索闭环推到“默认 Agent”：一条 `recon agent` 命令有界地跑完站点分析、多臂探索、同站链接发现、配额规划与执行，并把停止原因写成机器可读的 `agent/1`。

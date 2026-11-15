@@ -17,6 +17,7 @@
 | `bandit` | `bandit.py` | 离线推演选臂策略：请求开销与成功率 | `--arms` / `--trials` / `--rates-json` / `--policy-in` `--pages` `--policies` `--seed` |
 | `explore` | `explore.py` | 只读探索规划：后验 → 下一批探测与停止规则，可写成可执行计划 | `--trials` / `--policy-in` `--arms` `--budget` `--max-per-context` `--target-pulls` `--prior-strength` `--half-life` `--cost-weight` `--block-budget` `--seed` `--plan-out` |
 | `advise` | `advise.py` | 证据行 → 下一步动作（只读，不执行） | `--route` `--json` |
+| `brief` | `brief.py` | 工作区 → 有界、字节稳定的 Agent 上下文包（`brief/1`） | `--budget` `--expect-digest` `--json` |
 | `agent` | `agent.py` | 默认探索 Agent：站点分析 → 探索 → 路径发现 → 计划 → 配额执行（有界循环） | `--from` `--out` `--selector` `--max-rounds` `--max-pages` `--max-requests` `--budget` `--discover` / `--no-discover` `--max-discovered` `--arms` `--arms-file` `--policy` `--policy-in` `--seed` `--i-have-permission` `--no-cookies` |
 | `surface` | `js-surface.py` | JS 采集面：采了什么、往哪报 | `--html` `--js` `--max-scripts` `--all-origins` |
 | `fp` | `fp-echo.py` | 网络栈指纹快照与逐字段 diff | `collect` / `diff` `--via` `--impersonate` `--out` |
@@ -215,6 +216,23 @@ recon advise recon/<代号>/evidence.jsonl --route /article/1
 - 不联网、不发请求、不执行命令；`commands` 只是待人工确认的字符串。
 - 只吃证据行；试验行（`kind: trial`）与未知路由退出 2。
 - 动作与优先级见 [agent.md](agent.md)。
+
+## 上下文包 brief
+
+```bash
+recon brief recon/<代号>                            # 人读
+recon brief recon/<代号> --json                     # 机器读，单对象
+recon brief recon/<代号> --budget 1200              # 收紧预算
+recon brief recon/<代号> --expect-digest sha256:…   # 命中只回 digest
+```
+
+只读：不联网、不发请求、不写盘；`verdict` / `evidence` / `metrics` 分别复用 `advise` 与 `stats` 的结果，不产生第二份口径。
+
+- `--budget` 按 JSON 缩进输出的字符数计（不含 `budget` 节），默认 2000、最小 200。
+- 裁剪顺序：`metrics.routes` 留最差/最好各 3 → `outcomes` 删零值 → `verdict.commands` / `stop` 各留 1 → `gaps` 留 1 → `trials` / `policy` / `agent` 只留关键计数 → `next_reads` 留 1。核心字段永不裁剪；仍超预算时 `truncated: true`。
+- 同一工作区两次运行输出逐字节一致；证据行顺序不影响输出（CLI 先按规范化行内容排序）。
+- `--expect-digest` 命中时只输出 `digest` 与 `cache.hit`（单行，≤200 字符）。
+- 退出码：`0` 正常（含截断与命中）；`2` 输入错误。
 
 ## 默认 Agent
 

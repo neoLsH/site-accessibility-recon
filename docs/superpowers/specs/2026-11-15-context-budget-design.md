@@ -119,7 +119,7 @@ recon brief <workspace>
 | `gaps` | 从档案派生，≤3 条：`metrics.baseline` 为空、`gates` 缺 `evidence`、`plan.level` 缺失、缺 profile |
 | `next_reads` | 见「文档路由」；`chars` 为运行时实测文件大小 |
 | `artifacts` | 只给文件名，不给路径与内容 |
-| `budget` | `used` 按 JSON 序列化字符数；`tokens_est` 为估算 |
+| `budget` | `used` 为**不含 `budget` 节**的 JSON 缩进输出字符数（避免自引用）；`tokens_est` 为估算 |
 | `truncated` | 核心字段已无法再压仍超预算时为 `true` |
 
 文本模式渲染同一份裁剪后对象（~40 行 Markdown），不引入第二套裁剪规则。

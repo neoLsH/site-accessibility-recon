@@ -94,6 +94,16 @@ recon advise recon/<代号>/evidence.jsonl --route /article/1 --json
 
 退出码：`0` 有建议；`2` 输入错误（读不了文件、路由不存在、把试验行当证据行）。试验行（`kind: trial`）永远不能喂进来——它和证据行口径不同，混用会污染归因。
 
+## 上下文预算 `brief/1`
+
+`recon brief <工作区>` 把 profile / evidence / trials / policy / agent.json 收敛成一个有界包，字段：`digest` / `verdict` / `evidence` / `metrics` / `gates` / `gaps` / `next_reads` / `artifacts` / `budget` / `truncated`。
+
+- `verdict` / `evidence` 复用 `advise/1`，`metrics` 复用 `stats`，`gaps` / `gates` 从档案派生；不重写计数。
+- `digest` 覆盖未裁剪的信息体（含 `brief` 逻辑版本），**不受 `--budget` 与证据行顺序影响**；语义字段变化必然改变 digest。
+- 复用循环：下一轮先带 `--expect-digest <上轮>`；`cache.hit=true` 时只回 digest，不必重读工作区。这是调用方持有的判据，仓库不落任何缓存状态。
+- 输出无时间戳、无绝对路径、无随机序，可作为 prompt cache 的稳定前缀。
+- `next_reads` 按 `verdict.action` 只给 ≤2 份必需文档并附实测字符数；未知动作退化为空列表，不猜。
+
 ## 动作表
 
 | `action` | 触发条件 | 层 / S 级 | 置信度 |
