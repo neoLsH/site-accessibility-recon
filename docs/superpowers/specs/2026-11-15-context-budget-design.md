@@ -115,7 +115,7 @@ recon brief <workspace>
 | `evidence` | 复用 `advise.evidence`；`trials` / `policy` / `agent` 只给计数与停止原因 |
 | `metrics.overall` | 复用 `stats.block`；`access_ci` / `complete_ci` 保留 Wilson 区间 |
 | `metrics.routes` | 每条带 `n` / `access_rate` / `complete_rate`；按「最差在前」排序，裁剪时留头尾 |
-| `gates` | 从 `profile.gates` 数 `status`；`first_fail` 取 layer 序最早的 `fail` |
+| `gates` | 从 `profile.gates` 数 `status`；`first_fail` 取档案书写顺序里第一个 `fail`（模板按层序书写） |
 | `gaps` | 从档案派生，≤3 条：`metrics.baseline` 为空、`gates` 缺 `evidence`、`plan.level` 缺失、缺 profile |
 | `next_reads` | 见「文档路由」；`chars` 为运行时实测文件大小 |
 | `artifacts` | 只给文件名，不给路径与内容 |
