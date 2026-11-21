@@ -103,6 +103,14 @@ def augment(plan, urls, arms, per_url=1, max_steps=64, max_requests=None):
             if host and route:
                 covered.add((host, route))
 
+    suspended = {}
+    for ctx in plan.get("contexts") or []:
+        if not isinstance(ctx, dict):
+            continue
+        host, route = ctx.get("host"), ctx.get("route")
+        if host and route:
+            suspended.setdefault((host, route), set()).update(ctx.get("suspended_arms") or [])
+
     counts, order = {}, []
     for url in urls or []:
         host = urlsplit(str(url or "")).netloc
@@ -119,6 +127,8 @@ def augment(plan, urls, arms, per_url=1, max_steps=64, max_requests=None):
     for key in order:
         want = len(counts[key]) * per_url
         for arm in arms:
+            if arm in suspended.get(key, ()):
+                continue
             if len(added) >= max_steps:
                 break
             count = want if max_requests is None else min(want, max_requests - allocated - total)

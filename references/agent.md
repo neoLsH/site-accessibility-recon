@@ -20,6 +20,8 @@ Skill 给人读，CLI 给脚本调，Agent 需要一个**稳定、可校验、�
 | 执行 | `crawl --plan` 按配额跑下一轮 | 计划外路由零请求；页面记 `plan-exhausted`，其中尚未请求的链接留到下一轮 |
 | 收敛 | `advise` 给下一步；终态动作与安全信号立即停 | 轮数、页面、请求三重上限 |
 
+下一轮重试只看每条 URL 的最新证据，已拿到内容的页面不会因历史失败再次入队；历史证据仍完整保留。规划使用全部已配置臂，尚未尝试的臂可进入预算；路径增补不能重新启用规划器暂停的臂。
+
 产物全部写进 `--out`：`evidence.jsonl` / `trials.jsonl`（跨轮累计）、`r<N>-evidence.jsonl` / `r<N>-trials.jsonl` / `r<N>-urls.txt`（单轮）、`plan.json`、`policy.json`、`bodies/`（`--discover` 时）与 `agent.json`。
 
 `agent.json` 契约 `agent/1`：`seeds` / `out` / `budget`（上限与用量）/ `analysis`（逐 host 形态、robots、下一步）/ `rounds`（每轮 crawl 摘要、计划、发现数、建议动作）/ `advice`（最后一轮 `advise/1`）/ `stop` / `artifacts`。
