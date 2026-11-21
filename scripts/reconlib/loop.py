@@ -154,6 +154,7 @@ def build_plan(args, urls, paths, budget, arm_list):
     """explore 出计划 → 把 frontier 新路由类补进去 → 覆盖写 plan.json。"""
     budget = max(1, min(args.budget, budget))
     plan_args = ["--trials", paths["trials"],
+                 "--arms", ",".join(arm_list),
                  "--budget", str(budget),
                  "--max-per-context", str(args.max_per_context),
                  "--block-budget", str(args.block_budget),
@@ -171,9 +172,12 @@ def build_plan(args, urls, paths, budget, arm_list):
         with open(paths["plan"], encoding="utf-8") as f:
             body = json.load(f)
         queued = {(urlsplit(url).netloc, ctxmod.route_class(url)) for url in urls}
+        eligible, _ = armreg.load(args.arms_file).filter(
+            arm_list, armreg.parse_require(args.require))
         body["steps"] = [step for step in body["steps"]
-                         if tuple(step["context"].split("|")[:2]) in queued]
-        body = agentlib.augment(body, urls, arm_list, per_url=1,
+                         if tuple(step["context"].split("|")[:2]) in queued
+                         and step["arm"] in eligible]
+        body = agentlib.augment(body, urls, eligible, per_url=1,
                                 max_requests=budget)
         body["remaining"] = budget - body["allocated"]
         body["summary"]["steps"] = len(body["steps"])
@@ -213,16 +217,13 @@ def discover_round(trials, allowed_hosts, seen, limit):
 
 
 def retry_urls(rows):
-    out, seen = [], set()
+    latest = {}
     for row in rows:
-        if row.get("outcome") not in ("blocked", "degraded"):
-            continue
         url = row.get("final_url") or row.get("url")
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        out.append(url)
-    return out
+        if url:
+            latest[url] = row
+    return [url for url, row in latest.items()
+            if row.get("outcome") in ("blocked", "degraded")]
 
 
 def next_urls(frontier, rows, limit):

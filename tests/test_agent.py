@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 import support  # noqa: F401  （把 scripts/ 加进 sys.path）
-from reconlib import agent, discover
+from reconlib import agent, discover, evidence, explore
 
 BASE = ("--selector", "#content", "--delay", "0", "--timeout", "10",
         "--arms", "native")
@@ -170,12 +170,98 @@ class AugmentTest(unittest.TestCase):
         self.assertEqual(body["frontier"]["steps"], 1)
         self.assertEqual(body["frontier"]["requests"], 1)
 
+    def test_partial_suspension_keeps_only_allowed_frontier_arms(self):
+        plan = {"steps": [], "contexts": [
+            {"context": "a.test|article|challenge", "host": "a.test",
+             "route": "article", "suspended_arms": ["native"]}]}
+        original = json.dumps(plan, sort_keys=True)
+        body = agent.augment(plan, ["https://a.test/article/2"],
+                             ["native", "cffi:chrome"], max_requests=4)
+        self.assertEqual([(s["arm"], s["requests"]) for s in body["steps"]],
+                         [("cffi:chrome", 1)])
+        self.assertEqual(body["allocated"], 1)
+        self.assertEqual(json.dumps(plan, sort_keys=True), original)
+
+    def test_suspensions_union_across_response_contexts(self):
+        contexts = [
+            {"context": "a.test|article|challenge", "host": "a.test",
+             "route": "article", "suspended_arms": ["native"]},
+            {"context": "a.test|article|content", "host": "a.test",
+             "route": "article", "suspended_arms": ["cffi:chrome"]}]
+        for ordered in (contexts, list(reversed(contexts))):
+            for arms in (["native", "cffi:chrome"],
+                         ["native", "cffi:chrome", "cffi:firefox"]):
+                with self.subTest(contexts=ordered, arms=arms):
+                    body = agent.augment(
+                        {"steps": [], "contexts": ordered},
+                        ["https://a.test/article/2"], arms, max_requests=4)
+                    self.assertEqual([s["arm"] for s in body["steps"]], arms[2:])
+                    self.assertEqual(body["allocated"], len(arms[2:]))
+
+    def test_halted_route_does_not_suppress_new_routes_or_hosts(self):
+        plan = {"steps": [], "contexts": [
+            {"context": "a.test|article|challenge", "host": "a.test",
+             "route": "article", "decision": "halt",
+             "suspended_arms": ["native"]}]}
+        body = agent.augment(plan, ["https://a.test/article/2",
+                                    "https://a.test/list/1",
+                                    "https://b.test/article/1"],
+                             ["native"], max_requests=2)
+        self.assertEqual([s["context"] for s in body["steps"]],
+                         ["a.test|list|unknown", "b.test|article|unknown"])
+        self.assertEqual(body["allocated"], 2)
+
     def test_rejects_non_object(self):
         with self.assertRaises(ValueError):
             agent.augment([], [], ["native"])
 
 
 class AgentCliTest(unittest.TestCase):
+    def test_three_blocked_rounds_cannot_reopen_route_or_request_robots(self):
+        hits = {"page": 0, "robots": 0}
+
+        def blocked(handler):
+            hits["page"] += 1
+            support.response(handler, 403, "Forbidden")
+
+        def robots(handler):
+            hits["robots"] += 1
+            support.response(handler, 200, "User-agent: *\nDisallow:\n",
+                             ctype="text/plain")
+
+        out = temp_dir(self)
+        policy_path = os.path.join(out, "policy.json")
+        plan_path = os.path.join(out, "plan.json")
+        rows = []
+        with support.serve({"/article/1": blocked, "/robots.txt": robots}) as base:
+            url = base + "/article/1"
+            for n in range(3):
+                trial_path = os.path.join(out, f"r{n}-trials.jsonl")
+                policy_in = ("--policy-in", policy_path) if n else ()
+                r, data = support.run_json(
+                    "crawl", url, *BASE, "--json", "--trial-out", trial_path,
+                    "--policy-out", policy_path, *policy_in)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(data["summary"]["requests"], 1)
+                self.assertIsNone(agent.safety_stop(data["summary"]))
+                rows.extend(evidence.read_jsonl(trial_path))
+            self.assertEqual([r["trial_outcome"] for r in rows], ["blocked"] * 3)
+            plan = explore.plan(*explore.replay(rows), budget=4)
+            self.assertEqual(plan["summary"]["suspended_contexts"], 1)
+            self.assertEqual(plan["steps"], [])
+            body = agent.augment(plan, [url], ["native"], max_requests=4)
+            with open(plan_path, "w", encoding="utf-8") as f:
+                json.dump(body, f)
+            r, data = support.run_json(
+                "crawl", url, *BASE, "--json", "--plan", plan_path,
+                "--policy-in", policy_path)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(hits, {"page": 3, "robots": 3})
+        self.assertEqual(data["summary"]["requests"], 0)
+        self.assertEqual(data["summary"]["plan_exhausted_pages"], 1)
+        self.assertEqual(body["steps"], [])
+        self.assertEqual(body["allocated"], 0)
+
     def test_single_round_reports_analysis_and_artifacts(self):
         with support.serve({"/": page_with_links,
                             "/article/1": ok, "/article/2": ok}) as base:
