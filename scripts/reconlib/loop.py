@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from urllib.parse import urlsplit
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -446,10 +447,26 @@ def report(s, stop=None):
                           "report": paths["report"]}}
 
 
+def write_report(s, stop=None):
+    body = report(s, stop)
+    path = s["paths"]["report"]
+    fd, tmp = tempfile.mkstemp(prefix=".agent-report-", suffix=".tmp",
+                               dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(body, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+    return body
+
+
 def _finish(s):
-    s["report"] = report(s)
-    with open(s["paths"]["report"], "w", encoding="utf-8") as f:
-        json.dump(s["report"], f, ensure_ascii=False, indent=2)
+    s["report"] = write_report(s)
     s["phase"] = "end"
 
 
