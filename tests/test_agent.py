@@ -165,7 +165,8 @@ class AugmentTest(unittest.TestCase):
     def test_respects_request_cap(self):
         urls = ["https://a.test/list/1", "https://b.test/x"]
         body = agent.augment(self.plan(), urls, ["native", "cffi:chrome"],
-                             max_requests=1)
+                             max_requests=3)
+        self.assertEqual(body["allocated"], 3)
         self.assertEqual(body["frontier"]["steps"], 1)
         self.assertEqual(body["frontier"]["requests"], 1)
 

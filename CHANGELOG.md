@@ -4,6 +4,20 @@
 
 标签与提交不一定一一对应：v1.3.0 与 v1.4.0 的工作合并在同一个提交里，所以仓库里只有 v1.4.0 的标签。
 
+## [1.24.0] — 2026-11-21
+
+### 新增
+
+- 可选 LangGraph AgentLoop：站点分析、采集、发现、规划、评审与决策分别作为图节点执行，复用 stdlib 循环的规则与预算。
+- SQLite checkpoint、thread_id 恢复、计划执行前人工中断与 JSONL 流事件；默认 CLI 不依赖 LangGraph，也不调用模型。
+- 人工修改计划后重新校验目标、客户端臂与剩余配额；网络节点执行状态不确定时停手，不承诺崩溃恢复的 exactly-once 请求语义。
+- 可选依赖 CI，与无 LangGraph 的核心测试分开执行。
+
+### 变更
+
+- `recon agent` 增加可选图运行时，保留 `agent/1` 报告与原有合规护栏。
+- 规划时将已有探索配额与新增路径配额一起计入单轮预算，只执行待采集路由；因配额耗尽尚未请求的新链接保留到下一轮。
+
 ## [1.23.0] — 2026-11-15
 
 给 Agent 一个**有界、可复用**的上下文包：新增只读命令 `recon brief <工作区>`，把 profile / evidence / trials / policy / agent.json 收敛成 `brief/1`（`verdict` / `evidence` / `metrics` / `gates` / `gaps` / `next_reads` / `artifacts` / `budget`）。

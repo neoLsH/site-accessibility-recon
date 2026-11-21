@@ -245,10 +245,15 @@ recon agent https://example.com/ --selector '#content' --out recon/<代号> \
 
 - 站点分析每个 host 只发 1 个页面请求（robots 检查另计）；挑战页 / 登录墙 / 链路失败 / 错误页 / robots 禁止的 host 直接拦下，不再请求。
 - 每轮 `crawl` 产出证据行与试验行；从留存 HTML 提取同站链接（跳过静态资源）作为 frontier。
-- 下一轮先 `explore` 出配额计划，再把 frontier 新路由类补进计划（每 URL × 每臂 1 次），由 `crawl --plan` 执行；计划外路由零请求。
+- 下一轮先 `explore` 出配额计划，只保留待采集路由，再把 frontier 新路由类补进计划（每 URL × 每臂 1 次），由 `crawl --plan` 执行；计划外路由零请求，因配额耗尽尚未请求的链接留到下一轮。
 - 轮数 / 页面 / 请求三重上限；`advise` 的终态动作与限频冷却、熔断、全臂暂停会立即停手。
 - 产物：`evidence.jsonl` / `trials.jsonl` / `r<N>-*.jsonl` / `r<N>-urls.txt` / `plan.json` / `policy.json` / `bodies/` / `agent.json`。
 - 输出契约 `agent/1`：`seeds` / `out` / `budget` / `analysis` / `rounds` / `advice` / `stop` / `artifacts`。退出码 `0` 正常收敛（含预算 / 轮数 / 合规拦下），`1` 安全或配置停手，`2` 用法错误。
+- 运行时默认 `--runtime stdlib`，无可选依赖。可选 `--runtime langgraph --thread-id <id>` 使用真实多节点 StateGraph（无模型 / LLM）；先执行 `python -m pip install -r requirements-langgraph.txt`，缺包会报错而不是降级。
+- `--interrupt` 在第 2 轮起每轮 review 前暂停（`stop.kind=interrupted`，退出码 0）；默认 checkpoint 为 `<out>/checkpoint.sqlite`。恢复命令：`scripts/recon.py agent --out recon/<代号> --runtime langgraph --thread-id <原id> --resume --json`。只用原 out / thread，种子与采集配置从 checkpoint 读取，不重置预算、不重跑已完成阶段。
+- 暂停时可编辑 `plan.json`，恢复会重新校验 schema / Quota / host / 路由 / 臂，只能减少原配额，总额含 frontier 增补且不超过剩余原预算 / 单轮预算；无效编辑不会发请求。
+- `--memory` 只保存进程内 checkpoint，CLI 不能跨进程 resume；`--stream` 输出 JSONL 节点事件和最后的 `agent/1` 报告，单独 `--json` 仍是单对象。
+- 崩溃恢复不是 exactly-once：网络阶段开始前持久写入 `.inflight-*` 标记，若 checkpoint 要重放已标记阶段则拒绝请求。不要删除标记强行续跑；核对证据并重新批准预算后用新输出目录 / 线程。仅支持可信本地文件系统上的 POSIX 单写者 CLI，cookie 不跨进程恢复。
 - 详细阶段、停止原因与边界见 [agent.md](agent.md)。
 
 ## 常见组合
