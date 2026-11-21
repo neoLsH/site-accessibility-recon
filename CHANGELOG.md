@@ -12,6 +12,7 @@
 - 重试队列按每条 URL 的最新结局生成，已恢复的页面不再因历史失败重复请求。
 - LangGraph 暂停时写入 `agent.json`，完成后原子替换；报告写入失败保留旧文件。
 - CLI 拒绝无法跨进程恢复的 `--memory --interrupt` 组合。
+- POSIX CLI 收到 SIGINT / SIGTERM 后停止所管理的子进程组，避免取消后 Agent、crawl 或适配器继续请求；保留 LangGraph 的不确定执行标记。
 
 ### 文档
 

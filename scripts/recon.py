@@ -41,8 +41,9 @@
 import json
 import os
 import re
-import subprocess
 import sys
+
+from reconlib.process import agent_worker_argv, supervised_run
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -100,13 +101,21 @@ def usage():
     print("\n".join(lines))
 
 
+def command_argv(interp, script, args):
+    path = os.path.join(HERE, script)
+    if interp == "python" and os.path.realpath(path) == \
+            os.path.realpath(os.path.join(HERE, "agent.py")):
+        return agent_worker_argv(path, args)
+    return [sys.executable if interp == "python" else "bash", path] + args
+
+
 def run(interp, script, args):
     path = os.path.join(HERE, script)
     if not os.path.exists(path):
         return 127, "", f"找不到 {script}"
-    cmd = [sys.executable if interp == "python" else "bash", path] + args
+    cmd = command_argv(interp, script, args)
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True)
+        p = supervised_run(cmd, capture_output=True, text=True)
     except OSError as e:
         return 127, "", str(e)
     return p.returncode, p.stdout, p.stderr
@@ -215,7 +224,7 @@ def main(argv):
             print("--stream and --json are mutually exclusive", file=sys.stderr)
             return 2
         try:
-            return subprocess.call([sys.executable, os.path.join(HERE, script)] + rest)
+            return supervised_run(command_argv(interp, script, rest)).returncode
         except OSError as exc:
             print(str(exc), file=sys.stderr)
             return 127

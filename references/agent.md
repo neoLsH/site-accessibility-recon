@@ -44,6 +44,8 @@ Skill 给人读，CLI 给脚本调，Agent 需要一个**稳定、可校验、�
 
 `recon agent` 只调用已存在的 `shape` / `crawl` / `explore` / `advise`，不自己发请求，也不新增绕过手段：不求解验证码、不轮换出口、不绕过登录或付费墙。要改判定，改 `reconlib/` 里的规则或 `advise` 动作表；不要在 Agent 里另写一份度量或归类。
 
+在 POSIX 系统上，统一 CLI 和直接运行 `scripts/agent.py` 都由外层进程管理独立的子进程组。收到 SIGINT / SIGTERM 后，停止该组内的 Agent、crawl 与普通适配器子进程，退出码分别为 130 / 143，不影响无关进程。嵌入调用 `agent.main()` 不包含这层管理；SIGKILL 杀死外层进程、或适配器主动脱离进程组，不在保证范围内。取消不会清除 LangGraph 的不确定执行标记，恢复仍按下述限制拒绝重放。
+
 ## 可选 LangGraph AgentLoop（无模型 / LLM 调用）
 
 默认 `--runtime stdlib` 不需要第三方包。两种运行时共用 `reconlib/loop.py` 的 JSON 状态与确定性规则；LangGraph 使用真正独立的 `analyze / crawl / discover / plan / review / decide / finish` 节点和条件边，不是把 CLI 包成单节点。
