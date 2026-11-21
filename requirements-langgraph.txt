@@ -1,0 +1,3 @@
+# Optional orchestration only; stdlib runtime has no dependency on these.
+langgraph>=1.2,<2
+langgraph-checkpoint-sqlite>=3,<4

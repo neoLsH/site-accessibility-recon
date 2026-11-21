@@ -5,7 +5,7 @@ license: MIT
 compatibility: 需要 python3 与 curl；建议另装 curl_cffi 做浏览器级 TLS 指纹仿真。要让脚本真正联网，还需要能出网的出口；断网时自动降级为离线复核（只分析已留存的 HTML 与快照）。
 allowed-tools: Bash, Read, Write, Edit, WebFetch, Task
 metadata:
-  version: 1.23.0
+  version: 1.24.0
   scope: diagnostics
 ---
 

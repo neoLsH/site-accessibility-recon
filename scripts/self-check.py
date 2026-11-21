@@ -122,6 +122,9 @@ REQUIRED = [
     "scripts/reconlib/arms.py",
     "scripts/reconlib/discover.py",
     "scripts/reconlib/agent.py",
+    "scripts/reconlib/loop.py",
+    "scripts/reconlib/graph.py",
+    "requirements-langgraph.txt",
     "scripts/reconlib/render.py",
     "scripts/reconlib/session.py",
     "scripts/reconlib/cookies.py",
@@ -156,6 +159,7 @@ REQUIRED = [
     "tests/test_rate_limit.py",
     "tests/test_plan_exec.py",
     "tests/test_agent.py",
+    "tests/test_loop.py",
     "tests/test_quick.py",
     "tests/test_matrix.py",
     "tests/test_explore.py",
@@ -1184,7 +1188,11 @@ assert {s["context"] for s in body["steps"]} == {
     "h|article|unknown", "h|api|unknown"}
 capped = agent.augment({}, ["https://h/api/x"], ["native", "cffi:chrome"],
                        per_url=2, max_requests=3)
-assert capped["frontier"]["requests"] in (0, 2), capped["frontier"]
+assert capped["allocated"] <= 3, capped
+from reconlib import loop
+assert set(loop.NODES) == {"analyze", "crawl", "discover", "plan", "review", "decide", "finish"}
+assert loop.route({"phase": "review"}) == "review"
+assert not any(k == "langgraph" or k.startswith("langgraph.") for k in sys.modules)
 """
     r = subprocess.run([sys.executable, "-c", code], capture_output=True,
                        text=True, cwd=ROOT)
@@ -1193,7 +1201,13 @@ assert capped["frontier"]["requests"] in (0, 2), capped["frontier"]
         fail("Agent 决策契约异常: " + " | ".join(tail))
         return
 
-    cli = read("scripts/agent.py")
+    cli = read("scripts/reconlib/loop.py")
+    graph = read("scripts/reconlib/graph.py")
+    for needle in ("StateGraph", "add_node", "add_conditional_edges", "SqliteSaver",
+                   "InMemorySaver", "interrupt_before", "_network_marker"):
+        if needle not in graph:
+            fail(f"LangGraph adapter missing contract: {needle}")
+            return
     for needle in ("robots.decision", "shape.fetch", "shape.classify",
                    "run_script(EXPLORE", "run_script(CRAWL", '"--plan"',
                    '"--i-have-permission"', "plan_exhausted_pages"):

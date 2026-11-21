@@ -85,6 +85,16 @@ def augment(plan, urls, arms, per_url=1, max_steps=64, max_requests=None):
     arms = [str(a) for a in (arms or []) if str(a)]
     per_url = max(1, int(per_url or 1))
     steps = [dict(step) for step in _steps(plan) if isinstance(step, dict)]
+    if max_requests is not None:
+        left, capped = max(0, int(max_requests)), []
+        for step in steps:
+            count = min(left, max(0, int(step.get("requests") or 0)))
+            if count:
+                step["requests"] = count
+                capped.append(step)
+                left -= count
+        steps = capped
+    allocated = sum(int(s.get("requests") or 0) for s in steps)
     covered = set()
     for step in steps:
         text = str(step.get("context") or "")
@@ -111,23 +121,25 @@ def augment(plan, urls, arms, per_url=1, max_steps=64, max_requests=None):
         for arm in arms:
             if len(added) >= max_steps:
                 break
-            if max_requests is not None and total + want > max_requests:
+            count = want if max_requests is None else min(want, max_requests - allocated - total)
+            if count <= 0:
                 break
             added.append({
                 "context": f"{key[0]}|{key[1]}|unknown",
                 "arm": arm,
                 "kind": "frontier",
-                "requests": want,
+                "requests": count,
                 "why": "路径发现得到的新路由类：每个 URL 先给每条臂一次样本再比较",
                 "p_best": 0.0,
                 "confidence": 0.0,
             })
-            total += want
+            total += count
         if len(added) >= max_steps:
             break
 
     body = dict(plan)
     body["steps"] = steps + added
+    body["allocated"] = allocated + total
     body["frontier"] = {
         "routes": len(counts),
         "steps": len(added),

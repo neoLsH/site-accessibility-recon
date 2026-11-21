@@ -210,6 +210,15 @@ def main(argv):
         rest = ["--profile", rest[0]] + rest[1:]
 
     interp, script, _ = TOOLS[cmd]
+    if cmd == "agent" and "--stream" in rest:
+        if as_json:
+            print("--stream and --json are mutually exclusive", file=sys.stderr)
+            return 2
+        try:
+            return subprocess.call([sys.executable, os.path.join(HERE, script)] + rest)
+        except OSError as exc:
+            print(str(exc), file=sys.stderr)
+            return 127
     rc, out, err = run(interp, script, rest)
 
     if as_json:

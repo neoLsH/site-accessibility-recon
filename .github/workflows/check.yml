@@ -16,3 +16,14 @@ jobs:
         run: python3 scripts/self-check.py
       - name: 行为测试（本地 fixture，无外网）
         run: python3 -m unittest discover -s tests -v
+  langgraph:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install optional graph runtime
+        run: python -m pip install -r requirements-langgraph.txt
+      - name: Verify graph and core behavior with optional dependencies
+        run: python -m unittest discover -s tests -v

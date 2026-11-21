@@ -16,8 +16,8 @@ Skill 给人读，CLI 给脚本调，Agent 需要一个**稳定、可校验、�
 | 站点分析 | 每个 host 取一个种子判形态 | 每 host 1 请求；robots 不允许则零请求；挑战页 / 登录墙 / 链路失败 / 错误页只记录，不再请求 |
 | 探索 | `crawl` 多臂选举，产出证据行与试验行 | 沿用 `--max-pages` / `--max-requests` / 节流 / 熔断 / 限频冷却 / 会话 |
 | 路径发现 | 从本轮留存 HTML 提同站链接，跳过静态资源 | 只保留种子 host；`--max-discovered` 封顶；不额外发请求 |
-| 规划 | `explore` 把试验行变成配额计划，`augment` 补新路由类 | 新路由按“不同 URL 数 × 每条臂一次”给额度，总额受剩余请求数封顶 |
-| 执行 | `crawl --plan` 按配额跑下一轮 | 计划外路由零请求；页面记 `plan-exhausted` |
+| 规划 | `explore` 把试验行变成配额计划，只保留待采集路由，`augment` 补新路由类 | 新路由按“不同 URL 数 × 每条臂一次”给额度，总额受单轮与剩余请求数封顶 |
+| 执行 | `crawl --plan` 按配额跑下一轮 | 计划外路由零请求；页面记 `plan-exhausted`，其中尚未请求的链接留到下一轮 |
 | 收敛 | `advise` 给下一步；终态动作与安全信号立即停 | 轮数、页面、请求三重上限 |
 
 产物全部写进 `--out`：`evidence.jsonl` / `trials.jsonl`（跨轮累计）、`r<N>-evidence.jsonl` / `r<N>-trials.jsonl` / `r<N>-urls.txt`（单轮）、`plan.json`、`policy.json`、`bodies/`（`--discover` 时）与 `agent.json`。
@@ -40,6 +40,25 @@ Skill 给人读，CLI 给脚本调，Agent 需要一个**稳定、可校验、�
 常用选项：`--out`（必填）、`--max-rounds 2`、`--max-pages 20`、`--max-requests 40`、`--budget 12`、`--discover/--no-discover`、`--max-discovered 20`；其余采集参数与 `crawl` 同名同义。`--i-have-permission` 只跳过 robots 检查，不改变节流、熔断与限频。退出码 `0` 表示在护栏内跑完（含预算 / 轮数 / 终态建议 / 合规拦下），`1` 表示安全或配置原因停手，`2` 是用法错误。
 
 `recon agent` 只调用已存在的 `shape` / `crawl` / `explore` / `advise`，不自己发请求，也不新增绕过手段：不求解验证码、不轮换出口、不绕过登录或付费墙。要改判定，改 `reconlib/` 里的规则或 `advise` 动作表；不要在 Agent 里另写一份度量或归类。
+
+## 可选 LangGraph AgentLoop（无模型 / LLM 调用）
+
+默认 `--runtime stdlib` 不需要第三方包。两种运行时共用 `reconlib/loop.py` 的 JSON 状态与确定性规则；LangGraph 使用真正独立的 `analyze / crawl / discover / plan / review / decide / finish` 节点和条件边，不是把 CLI 包成单节点。
+
+```bash
+python -m pip install -r requirements-langgraph.txt
+scripts/recon.py agent https://example.com/ --out recon/demo \
+  --runtime langgraph --thread-id demo --interrupt --json
+# 从第 2 轮开始，在 review 之前暂停；可减少 plan.json 中的配额
+scripts/recon.py agent --out recon/demo --runtime langgraph \
+  --thread-id demo --resume --json
+```
+
+- LangGraph 必须提供 `--thread-id`，默认在 `<out>/checkpoint.sqlite` 持久化。`--resume` 必须使用原输出目录和线程，从 checkpoint 读取原始配置 / 种子 / 预算，不重做分析或已完成的 crawl；恢复时不要重复传种子和采集配置。已结束线程只返回原报告。
+- `--interrupt` 从第 2 轮起每轮在 review 前暂停，返回 `agent/1`、`stop.kind=interrupted`、退出码 0；此时不会发出该轮请求。恢复时重新读取 `plan.json`，经 `explore.Quota` 校验；只允许减少原计划的 host / 路由 / 臂聚合配额，不能增加授权 host、臂或路由。总配额不能超过原始剩余预算或 `--budget`，frontier 增补也包含在总额里。错误计划拒绝执行，修好后可再次 resume。
+- `--stream`（两种运行时都支持）实时输出 JSONL 节点事件，最后一行是 `agent/1` 报告；与单对象输出 `--json` 互斥。
+- `--memory` 显式选用进程内 checkpoint，适合嵌入式测试；进程退出即丢失，CLI 禁止 `--memory --resume`。缺少可选依赖直接给出安装命令，不静默降级。checkpoint 不保存 argparse 对象、连接、浏览器或 cookie 会话；恢复后 cookie 会话不复用。
+- **恢复限制：不是 exactly-once 网络执行。** 每个网络阶段开始前写入并 fsync 永久 `.inflight-*` 标记。正常 checkpoint 已推进的阶段不重跑；若崩溃留下的状态要求重放已标记阶段，则 fail closed，拒绝任何重复请求（即使实际上可能还没发出请求）。请检查证据与预算，重新批准后用新输出目录 / 新线程开始；不要删除标记来强制重试。输出目录同时只允许一个 graph CLI 进程（POSIX 文件锁）；checkpoint、标记与输出目录需保存在可信本地磁盘，不支持跨主机分布式锁。
 
 ## advise 循环
 
