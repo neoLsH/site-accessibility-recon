@@ -35,6 +35,7 @@ Skill 给人读，CLI 给脚本调，Agent 需要一个**稳定、可校验、�
 | `max-rounds` / `budget` | 轮数或请求 / 页面预算用尽 | 0 |
 | `frontier-empty` / `plan-empty` | 没有可继续的 URL，或计划没有剩余动作 | 0 |
 | `analysis-gated` | 所有种子都被形态或 robots 拦下 | 0 |
+| `interrupted` | LangGraph 在 review 前暂停，报告已保存，等待恢复 | 0 |
 | `safety` | 限频冷却、熔断或全臂暂停 | 1 |
 | `config` | 没有可用客户端臂 | 1 |
 | `crawl-error` | crawl 超时或输出不可解析 | 1 |
@@ -57,9 +58,9 @@ scripts/recon.py agent --out recon/demo --runtime langgraph \
 ```
 
 - LangGraph 必须提供 `--thread-id`，默认在 `<out>/checkpoint.sqlite` 持久化。`--resume` 必须使用原输出目录和线程，从 checkpoint 读取原始配置 / 种子 / 预算，不重做分析或已完成的 crawl；恢复时不要重复传种子和采集配置。已结束线程只返回原报告。
-- `--interrupt` 从第 2 轮起每轮在 review 前暂停，返回 `agent/1`、`stop.kind=interrupted`、退出码 0；此时不会发出该轮请求。恢复时重新读取 `plan.json`，经 `explore.Quota` 校验；只允许减少原计划的 host / 路由 / 臂聚合配额，不能增加授权 host、臂或路由。总配额不能超过原始剩余预算或 `--budget`，frontier 增补也包含在总额里。错误计划拒绝执行，修好后可再次 resume。
+- `--interrupt` 从第 2 轮起每轮在 review 前暂停，返回 `agent/1`、`stop.kind=interrupted`、退出码 0，并将暂停报告写入 `agent.json`；此时不会发出该轮请求。恢复完成后，最终报告原子替换暂停报告；写入失败保留旧文件。恢复时重新读取 `plan.json`，经 `explore.Quota` 校验；只允许减少原计划的 host / 路由 / 臂聚合配额，不能增加授权 host、臂或路由。总配额不能超过原始剩余预算或 `--budget`，frontier 增补也包含在总额里。错误计划拒绝执行，修好后可再次 resume。
 - `--stream`（两种运行时都支持）实时输出 JSONL 节点事件，最后一行是 `agent/1` 报告；与单对象输出 `--json` 互斥。
-- `--memory` 显式选用进程内 checkpoint，适合嵌入式测试；进程退出即丢失，CLI 禁止 `--memory --resume`。缺少可选依赖直接给出安装命令，不静默降级。checkpoint 不保存 argparse 对象、连接、浏览器或 cookie 会话；恢复后 cookie 会话不复用。
+- `--memory` 显式选用进程内 checkpoint，适合嵌入式测试；进程退出即丢失，CLI 禁止 `--memory --resume` 和 `--memory --interrupt`。缺少可选依赖直接给出安装命令，不静默降级。checkpoint 不保存 argparse 对象、连接、浏览器或 cookie 会话；恢复后 cookie 会话不复用。
 - **恢复限制：不是 exactly-once 网络执行。** 每个网络阶段开始前写入并 fsync 永久 `.inflight-*` 标记。正常 checkpoint 已推进的阶段不重跑；若崩溃留下的状态要求重放已标记阶段，则 fail closed，拒绝任何重复请求（即使实际上可能还没发出请求）。请检查证据与预算，重新批准后用新输出目录 / 新线程开始；不要删除标记来强制重试。输出目录同时只允许一个 graph CLI 进程（POSIX 文件锁）；checkpoint、标记与输出目录需保存在可信本地磁盘，不支持跨主机分布式锁。
 
 ## advise 循环

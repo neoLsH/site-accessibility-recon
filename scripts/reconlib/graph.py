@@ -86,7 +86,7 @@ def run(state, thread_id, *, checkpointer, resume=False, interrupt=False, emit=N
                 emit(loop.event(node, result))
     snapshot = app.get_state(config)
     if snapshot.next:
-        return loop.report(snapshot.values, {"kind": "interrupted", "reason":
+        return loop.write_report(snapshot.values, {"kind": "interrupted", "reason":
                            "Paused before review; edit plan.json within original quota, then --resume"})
     return snapshot.values["report"]
 

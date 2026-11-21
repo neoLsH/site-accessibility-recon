@@ -97,6 +97,8 @@ def main():
         ap.error("--runtime langgraph requires --thread-id")
     if args.resume and args.memory:
         ap.error("--memory is process-local; CLI --resume requires SQLite")
+    if args.interrupt and args.memory:
+        ap.error("--memory is process-local; CLI --interrupt requires SQLite")
     if args.resume:
         allowed = {"--out", "--runtime", "--thread-id", "--resume", "--json", "--stream"}
         # Resuming cannot silently replace saved seeds, scope or original budgets.

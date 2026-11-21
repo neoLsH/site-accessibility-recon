@@ -230,6 +230,36 @@ class LoopTest(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("--thread-id", r.stderr)
 
+    def test_cli_rejects_memory_interrupt_before_creating_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = os.path.join(directory, "unused")
+            result = support.run("agent", "--out", out, "--runtime", "langgraph",
+                                 "--thread-id", "test", "--memory", "--interrupt")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("CLI --interrupt requires SQLite", result.stderr)
+            self.assertFalse(os.path.exists(out))
+
+    def test_report_write_failure_preserves_previous_report(self):
+        from agent import parser
+        from reconlib import loop
+        for target in ("os.replace", "os.fsync", "json.dump"):
+            with self.subTest(target=target), tempfile.TemporaryDirectory() as out:
+                args = parser().parse_args(["--out", out, *BASE])
+                state = loop.initial_state(vars(args), [])
+                state.update({"stop": {"kind": "frontier-empty", "reason": "done"},
+                              "phase": "finish"})
+                path = state["paths"]["report"]
+                previous = {"stop": {"kind": "interrupted"}}
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(previous, f)
+                with patch("reconlib.loop." + target, side_effect=OSError("write failed")):
+                    with self.assertRaisesRegex(OSError, "write failed"):
+                        loop._finish(state)
+                with open(path, encoding="utf-8") as f:
+                    self.assertEqual(f.read(), json.dumps(previous))
+                self.assertEqual(os.listdir(out), ["agent.json"])
+                self.assertEqual(state["phase"], "finish")
+
     def test_missing_dependency_is_actionable(self):
         from reconlib import graph
         import builtins
@@ -278,11 +308,19 @@ class GraphTest(unittest.TestCase):
             self.assertEqual(paused["stop"]["kind"], "interrupted")
             self.assertEqual(hits, ["home", "home"])
             self.assertTrue(os.path.isfile(os.path.join(out, "checkpoint.sqlite")))
+            report_path = paused["artifacts"]["report"]
+            self.assertTrue(os.path.isfile(report_path))
+            with open(report_path, encoding="utf-8") as f:
+                self.assertEqual(json.load(f), paused)
             r, final = support.run_json(*args, "--resume")
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertEqual(len(final["rounds"]), 2)
             self.assertEqual(hits.count("home"), 2)
             self.assertEqual(hits.count("article"), 2)
+            with open(report_path, encoding="utf-8") as f:
+                self.assertEqual(json.load(f), final)
+            self.assertNotEqual(final["stop"]["kind"], "interrupted")
+            self.assertFalse(any(name.endswith(".tmp") for name in os.listdir(out)))
             count = len(hits)
             r, again = support.run_json(*args, "--resume")
             self.assertEqual(r.returncode, 0, r.stderr)
