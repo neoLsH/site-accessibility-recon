@@ -132,4 +132,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    from reconlib.process import agent_worker_argv, supervised_run
+    sys.exit(supervised_run(agent_worker_argv(__file__, sys.argv[1:])).returncode)
